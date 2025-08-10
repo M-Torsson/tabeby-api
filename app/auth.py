@@ -16,6 +16,7 @@ from .security import (
     get_password_hash,
     verify_password,
 )
+from .mailer import send_password_reset
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -227,9 +228,11 @@ def forgot_password(payload: schemas.ForgotPasswordRequest, db: Session = Depend
         expires_at = datetime.utcnow() + timedelta(minutes=RESET_EXPIRE_MINUTES)
         db.add(models.PasswordResetToken(token=raw_token, admin_id=admin.id, expires_at=expires_at, used=False))
         db.commit()
-        # إرسال البريد يُنفّذ لاحقاً؛ نطبع الرابط أثناء التطوير فقط
         reset_link = f"{FRONTEND_BASE_URL}/auth/reset?token={raw_token}"
-        print("[DEV] Reset link:", reset_link)
+        # أرسل البريد إن كان SMTP مُعداً، وإلا اطبعه أثناء التطوير
+        sent = send_password_reset(payload.email, reset_link)
+        if not sent:
+            print("[DEV] Reset link:", reset_link)
     return {"status": "sent"}
 
 
