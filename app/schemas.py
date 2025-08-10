@@ -41,3 +41,18 @@ class TokenPair(BaseModel):
 class RefreshRequest(BaseModel):
     refresh_token: str
 
+
+# ===== User/Profile updates =====
+class AdminUpdate(BaseModel):
+    name: str | None = None
+    email: EmailStr | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class SecurityUpdate(BaseModel):
+    revoke_all_sessions: bool | None = None
+

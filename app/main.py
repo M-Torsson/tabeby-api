@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from .database import Base, engine, SessionLocal
 from . import models, schemas
 from .auth import router as auth_router
+from .users import router as users_router
 from fastapi.middleware.cors import CORSMiddleware
 
 # إنشاء الجداول عند تشغيل التطبيق لأول مرة
@@ -37,6 +38,7 @@ def health():
 
 # دمج مسارات التوثيق
 app.include_router(auth_router)
+app.include_router(users_router)
 
 # إضافة مريض جديد
 @app.post("/patients", response_model=schemas.PatientOut)

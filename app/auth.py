@@ -154,6 +154,18 @@ def logout(current_admin: models.Admin = Depends(get_current_admin), token: str 
     return {"message": "تم تسجيل الخروج بنجاح"}
 
 
+@router.post("/change-password")
+def change_password(payload: schemas.ChangePasswordRequest, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    # تحقق من كلمة المرور الحالية
+    if not verify_password(payload.current_password, current_admin.password_hash):
+        raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
+    # حدّث كلمة المرور
+    current_admin.password_hash = get_password_hash(payload.new_password)
+    db.add(current_admin)
+    db.commit()
+    return {"message": "تم تغيير كلمة المرور"}
+
+
 @router.post("/refresh", response_model=schemas.TokenPair)
 def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db)):
     try:
