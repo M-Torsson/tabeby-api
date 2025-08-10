@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
@@ -74,10 +74,27 @@ def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=schemas.TokenPair)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    # OAuth2 form uses 'username' field; we'll treat it as email
-    admin: Optional[models.Admin] = db.query(models.Admin).filter_by(email=form_data.username).first()
-    if not admin or not verify_password(form_data.password, admin.password_hash):
+async def login(request: Request, db: Session = Depends(get_db)):
+    # دعم JSON أو form: إذا كان Content-Type JSON نقرأ الحقول email/password، وإلا نقرأ form username/password
+    email: Optional[str] = None
+    password: Optional[str] = None
+
+    content_type = request.headers.get("content-type", "").lower()
+    if content_type.startswith("application/json"):
+        data = await request.json()
+        email = (data.get("email") or data.get("username") or "").strip()
+        password = data.get("password")
+    else:
+        form = await request.form()
+        # OAuth2 form uses 'username'
+        email = (form.get("username") or form.get("email") or "").strip()
+        password = form.get("password")
+
+    if not email or not password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="يجب إرسال البريد الإلكتروني وكلمة المرور")
+
+    admin: Optional[models.Admin] = db.query(models.Admin).filter_by(email=email).first()
+    if not admin or not verify_password(password, admin.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="بيانات الدخول غير صحيحة")
 
     access = create_access_token(subject=str(admin.id))
