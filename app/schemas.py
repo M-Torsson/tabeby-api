@@ -1,4 +1,5 @@
 from pydantic import BaseModel, EmailStr, ConfigDict
+from typing import Literal
 
 class PatientCreate(BaseModel):
     name: str
@@ -55,4 +56,18 @@ class ChangePasswordRequest(BaseModel):
 
 class SecurityUpdate(BaseModel):
     revoke_all_sessions: bool | None = None
+
+
+class AdminBrief(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    role: Literal["admin", "super-admin"]
+
+
+class AdminAdminUpdate(BaseModel):
+    name: str | None = None
+    email: EmailStr | None = None
+    role: Literal["admin", "super-admin"] | None = None
+    active: bool | None = None
 
