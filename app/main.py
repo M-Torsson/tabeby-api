@@ -3,11 +3,24 @@ from sqlalchemy.orm import Session
 from .database import Base, engine, SessionLocal
 from . import models, schemas
 from .auth import router as auth_router
+from fastapi.middleware.cors import CORSMiddleware
 
 # إنشاء الجداول عند تشغيل التطبيق لأول مرة
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Tabeby API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://tabeby-api.onrender.com",  # اختياري
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # دالة للحصول على جلسة قاعدة البيانات
 def get_db():
