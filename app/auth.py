@@ -56,15 +56,32 @@ def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = Depends
 
 
 @router.post("/admin/register", response_model=schemas.AdminOut, status_code=201)
-def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)):
-    exists = db.query(models.Admin).filter_by(email=payload.email).first()
+async def register_admin(request: Request, db: Session = Depends(get_db)):
+    # دعم JSON أو form/multipart
+    content_type = request.headers.get("content-type", "").lower()
+    name = email = password = None
+    if content_type.startswith("application/json"):
+        data = await request.json()
+        name = (data.get("name") or data.get("fullName") or "").strip()
+        email = (data.get("email") or "").strip()
+        password = data.get("password")
+    else:
+        form = await request.form()
+        name = (form.get("name") or form.get("fullName") or "").strip()
+        email = (form.get("email") or "").strip()
+        password = form.get("password")
+
+    if not name or not email or not password:
+        raise HTTPException(status_code=400, detail="يجب إرسال name, email, password")
+
+    exists = db.query(models.Admin).filter_by(email=email).first()
     if exists:
         raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
 
     admin = models.Admin(
-        name=payload.name,
-        email=payload.email,
-        password_hash=get_password_hash(payload.password),
+        name=name,
+        email=email,
+        password_hash=get_password_hash(password),
         is_active=True,
         is_superuser=False,
     )
@@ -72,8 +89,8 @@ def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(admin)
 
-    # السطر المهم:
-    return schemas.AdminOut.model_validate(admin)
+    # أعد نموذج Pydantic صريحاً من خصائص ORM
+    return schemas.AdminOut.model_validate(admin, from_attributes=True)
 
 
 @router.post("/login", response_model=schemas.TokenPair)
