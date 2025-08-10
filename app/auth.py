@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import uuid
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -209,3 +211,62 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
     db.commit()
 
     return {"access_token": access["token"], "refresh_token": new_refresh["token"]}
+
+
+# ===== Password reset flow =====
+RESET_EXPIRE_MINUTES = int(os.getenv("RESET_TOKEN_EXPIRE_MINUTES", "30"))
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
+
+
+@router.post("/forgot-password")
+def forgot_password(payload: schemas.ForgotPasswordRequest, db: Session = Depends(get_db)):
+    # رد عام دائماً لمنع تسريب وجود البريد
+    admin = db.query(models.Admin).filter_by(email=payload.email).first()
+    if admin:
+        raw_token = uuid.uuid4().hex + uuid.uuid4().hex  # 64-hex
+        expires_at = datetime.utcnow() + timedelta(minutes=RESET_EXPIRE_MINUTES)
+        db.add(models.PasswordResetToken(token=raw_token, admin_id=admin.id, expires_at=expires_at, used=False))
+        db.commit()
+        # إرسال البريد يُنفّذ لاحقاً؛ نطبع الرابط أثناء التطوير فقط
+        reset_link = f"{FRONTEND_BASE_URL}/auth/reset?token={raw_token}"
+        print("[DEV] Reset link:", reset_link)
+    return {"status": "sent"}
+
+
+@router.get("/reset-password/verify", response_model=schemas.VerifyResetResponse)
+def verify_reset_token(token: str, db: Session = Depends(get_db)):
+    prt = db.query(models.PasswordResetToken).filter_by(token=token).first()
+    if not prt:
+        return {"valid": False, "reason": "invalid"}
+    if prt.used:
+        return {"valid": False, "reason": "used"}
+    now = datetime.utcnow()
+    if prt.expires_at < now:
+        return {"valid": False, "reason": "expired"}
+    expires_in = int((prt.expires_at - now).total_seconds())
+    return {"valid": True, "expires_in": expires_in}
+
+
+@router.post("/reset-password")
+def reset_password(payload: schemas.ResetPasswordRequest, db: Session = Depends(get_db)):
+    prt = db.query(models.PasswordResetToken).filter_by(token=payload.token).first()
+    if not prt:
+        raise HTTPException(status_code=400, detail="invalid")
+    if prt.used:
+        raise HTTPException(status_code=410, detail="used")
+    if prt.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=410, detail="expired")
+
+    admin = db.get(models.Admin, prt.admin_id)
+    if not admin:
+        raise HTTPException(status_code=400, detail="invalid")
+
+    # تعيين كلمة المرور الجديدة وإبطال الجلسات
+    admin.password_hash = get_password_hash(payload.new_password)
+    db.query(models.RefreshToken).filter_by(admin_id=admin.id, revoked=False).update({models.RefreshToken.revoked: True})
+    prt.used = True
+
+    db.add(admin)
+    db.add(prt)
+    db.commit()
+    return {"status": "ok"}

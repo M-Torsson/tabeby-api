@@ -71,3 +71,19 @@ class AdminAdminUpdate(BaseModel):
     role: Literal["admin", "super-admin"] | None = None
     active: bool | None = None
 
+
+# ===== Password Reset Flow =====
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class VerifyResetResponse(BaseModel):
+    valid: bool
+    expires_in: int | None = None
+    reason: Literal["invalid", "expired", "used"] | None = None
+

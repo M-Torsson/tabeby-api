@@ -46,3 +46,14 @@ class BlacklistedToken(Base):
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True)
+    token = Column(String, unique=True, index=True, nullable=False)
+    admin_id = Column(Integer, ForeignKey("admins.id", ondelete="CASCADE"), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
