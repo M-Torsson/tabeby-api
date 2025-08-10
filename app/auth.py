@@ -60,6 +60,7 @@ def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)):
     exists = db.query(models.Admin).filter_by(email=payload.email).first()
     if exists:
         raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
+
     admin = models.Admin(
         name=payload.name,
         email=payload.email,
@@ -70,7 +71,9 @@ def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)):
     db.add(admin)
     db.commit()
     db.refresh(admin)
-    return admin
+
+    # السطر المهم:
+    return schemas.AdminOut.model_validate(admin)
 
 
 @router.post("/login", response_model=schemas.TokenPair)

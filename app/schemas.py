@@ -1,16 +1,15 @@
 from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 
 class PatientCreate(BaseModel):
     name: str
     email: EmailStr
 
 class PatientOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
     email: EmailStr
-
-    class Config:
-        from_attributes = True
 
 
 # ===== Schemas for Admin/Auth =====
@@ -21,12 +20,10 @@ class AdminCreate(BaseModel):
 
 
 class AdminOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
     email: EmailStr
-
-    class Config:
-        from_attributes = True
 
 
 class LoginRequest(BaseModel):
