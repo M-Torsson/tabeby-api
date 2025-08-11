@@ -120,19 +120,25 @@ async def login(request: Request, db: Session = Depends(get_db)):
     if not admin or not verify_password(password, admin.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="بيانات الدخول غير صحيحة")
 
-    access = create_access_token(subject=str(admin.id))
+    # أنشئ رمز التحديث أولاً وسجّل بيانات الجلسة
     refresh = create_refresh_token(subject=str(admin.id))
-
-    # خزّن رمز التحديث في قاعدة البيانات
-    db.add(
-        models.RefreshToken(
-            jti=refresh["jti"],
-            admin_id=admin.id,
-            expires_at=refresh["exp"],
-            revoked=False,
-        )
+    ua = request.headers.get("user-agent")
+    ip = request.client.host if request.client else None
+    rt = models.RefreshToken(
+        jti=refresh["jti"],
+        admin_id=admin.id,
+        expires_at=refresh["exp"],
+        revoked=False,
+        device=None,
+        ip=ip,
+        user_agent=ua,
+        last_seen=datetime.utcnow(),
     )
+    db.add(rt)
     db.commit()
+
+    # اجعل رمز الوصول يحمل sid (يشير إلى جلسة الريفريش)
+    access = create_access_token(subject=str(admin.id), extra={"sid": refresh["jti"]})
 
     return {"access_token": access["token"], "refresh_token": refresh["token"]}
 

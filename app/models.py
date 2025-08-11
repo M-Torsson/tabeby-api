@@ -21,6 +21,12 @@ class Admin(Base):
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # 2FA and security preferences
+    two_factor_secret = Column(String, nullable=True)
+    two_factor_enabled = Column(Boolean, default=False)
+    email_security_alerts = Column(Boolean, default=True)
+    push_login_alerts = Column(Boolean, default=False)
+    critical_only = Column(Boolean, default=False)
 
     refresh_tokens = relationship("RefreshToken", back_populates="admin", cascade="all, delete-orphan")
 
@@ -34,6 +40,11 @@ class RefreshToken(Base):
     expires_at = Column(DateTime, nullable=False)
     revoked = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # session metadata
+    device = Column(String, nullable=True)
+    ip = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+    last_seen = Column(DateTime, nullable=True)
 
     admin = relationship("Admin", back_populates="refresh_tokens")
 
@@ -54,6 +65,16 @@ class PasswordResetToken(Base):
     token = Column(String, unique=True, index=True, nullable=False)
     admin_id = Column(Integer, ForeignKey("admins.id", ondelete="CASCADE"), nullable=False)
     expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class RecoveryCode(Base):
+    __tablename__ = "recovery_codes"
+
+    id = Column(Integer, primary_key=True)
+    admin_id = Column(Integer, ForeignKey("admins.id", ondelete="CASCADE"), index=True, nullable=False)
+    code = Column(String, unique=True, index=True, nullable=False)
     used = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

@@ -27,6 +27,7 @@ class AdminOut(BaseModel):
     email: EmailStr
     is_active: bool
     is_superuser: bool
+    two_factor_enabled: bool | None = False
 
 
 class LoginRequest(BaseModel):
@@ -57,6 +58,10 @@ class ChangePasswordRequest(BaseModel):
 
 class SecurityUpdate(BaseModel):
     revoke_all_sessions: bool | None = None
+    two_factor_enabled: bool | None = None
+    email_security_alerts: bool | None = None
+    push_login_alerts: bool | None = None
+    critical_only: bool | None = None
 
 
 class AdminBrief(BaseModel):
@@ -128,4 +133,38 @@ class ActivityListResponse(BaseModel):
     items: List[ActivityOut]
     total: int
     nextCursor: Optional[str] = None
+
+
+# ===== Two-Factor Auth (2FA) =====
+class TwoFASetupResponse(BaseModel):
+    secret: str
+    otpauth_url: str
+    qr_svg: Optional[str] = None
+
+
+class TwoFAEnableRequest(BaseModel):
+    code: str
+
+
+class TwoFAStatusResponse(BaseModel):
+    two_factor_enabled: bool
+
+
+# ===== Sessions =====
+class SessionOut(BaseModel):
+    id: int
+    device: Optional[str] = None
+    ip: Optional[str] = None
+    last_seen: Optional[datetime] = None
+    current: bool
+
+
+# ===== Recovery Codes =====
+class RecoveryCodeOut(BaseModel):
+    code: str
+    used: bool
+
+
+class RecoveryCodesResponse(BaseModel):
+    codes: List[RecoveryCodeOut]
 
