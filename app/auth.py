@@ -65,6 +65,19 @@ def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = Depends
     return admin
 
 
+@router.get("/me", response_model=schemas.AdminOut)
+def auth_me(current_admin: models.Admin = Depends(get_current_admin)):
+    # إعادة تحميل خفيفة لحماية ضد مخطط ناقص
+    return schemas.AdminOut.model_validate({
+        "id": current_admin.id,
+        "name": current_admin.name,
+        "email": current_admin.email,
+        "is_active": getattr(current_admin, "is_active", True),
+        "is_superuser": getattr(current_admin, "is_superuser", False),
+        "two_factor_enabled": False,
+    })
+
+
 @router.post("/admin/register", response_model=schemas.AdminOut, status_code=201)
 async def register_admin(request: Request, db: Session = Depends(get_db)):
     # دعم JSON أو form/multipart
