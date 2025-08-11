@@ -199,17 +199,23 @@ def update_admin(admin_id: int, payload: schemas.AdminAdminUpdate, db: Session =
 
 @router.delete("/{admin_id}")
 def delete_admin(admin_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    print(f"[DELETE_ADMIN] طلب حذف الإدمن: id={admin_id}, بواسطة: {current_admin.email} (superuser={current_admin.is_superuser})")
     ensure_admin_power(current_admin, db)
-
     admin = (
         db.query(models.Admin)
         .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.is_superuser))
         .filter_by(id=admin_id)
         .first()
     )
+    print(f"[DELETE_ADMIN] الإدمن المستهدف: {admin}")
     if not admin:
+        print(f"[DELETE_ADMIN] الإدمن غير موجود: id={admin_id}")
         raise HTTPException(status_code=404, detail="المستخدم غير موجود")
-
-    db.delete(admin)
-    db.commit()
-    return {"message": "تم حذف الإدمن"}
+    try:
+        db.delete(admin)
+        db.commit()
+        print(f"[DELETE_ADMIN] تم حذف الإدمن بنجاح: id={admin_id}")
+        return {"message": "تم حذف الإدمن"}
+    except Exception as e:
+        print(f"[DELETE_ADMIN][ERROR] خطأ أثناء الحذف: {e}")
+        raise HTTPException(status_code=500, detail=f"خطأ أثناء حذف الإدمن: {e}")
