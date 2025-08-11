@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, ConfigDict, Field
 from typing import Literal, Optional, List
 from datetime import datetime
 
@@ -36,9 +36,10 @@ class LoginRequest(BaseModel):
 
 
 class TokenPair(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
+    model_config = ConfigDict(populate_by_name=True)
+    access_token: str = Field(serialization_alias="accessToken")
+    refresh_token: str = Field(serialization_alias="refreshToken")
+    token_type: str = Field(default="bearer", serialization_alias="tokenType")
 
 
 class RefreshRequest(BaseModel):

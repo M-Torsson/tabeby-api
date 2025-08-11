@@ -57,6 +57,11 @@ app.include_router(users_router)
 app.include_router(admins_router)
 app.include_router(activities_router)
 
+# مسار الجذر لعرض رسالة بسيطة أو تحويل إلى الوثائق
+@app.get("/")
+def root():
+    return {"message": "Tabeby API is running", "docs": "/docs", "health": "/health"}
+
 # إضافة مريض جديد
 @app.post("/patients", response_model=schemas.PatientOut)
 def create_patient(payload: schemas.PatientCreate, db: Session = Depends(get_db)):
