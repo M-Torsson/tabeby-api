@@ -207,6 +207,8 @@ def delete_admin(admin_id: int, db: Session = Depends(get_db), current_admin: mo
         .filter_by(id=admin_id)
         .first()
     )
+    # احذف جميع رموز الريفريش المرتبطة بالإدمن بشكل آمن بدون تحميل أعمدة غير موجودة
+    db.query(models.RefreshToken).filter_by(admin_id=admin_id).delete()
     print(f"[DELETE_ADMIN] الإدمن المستهدف: {admin}")
     if not admin:
         print(f"[DELETE_ADMIN] الإدمن غير موجود: id={admin_id}")
