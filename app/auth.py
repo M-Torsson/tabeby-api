@@ -149,21 +149,33 @@ async def login(request: Request, db: Session = Depends(get_db)):
         # طباعة للّوج أثناء التطوير/النشر لتشخيص الأعمدة المفقودة
         print("[WARN] refresh_tokens insert failed, falling back to minimal insert:", e)
         try:
-            db.execute(
+            # اجلب الأعمدة المتاحة فعلياً للجدول refresh_tokens
+            cols_res = db.execute(
                 text(
-                    "INSERT INTO refresh_tokens (jti, admin_id, expires_at, revoked) VALUES (:jti, :admin_id, :expires_at, :revoked)"
-                ),
-                {
-                    "jti": refresh["jti"],
-                    "admin_id": admin.id,
-                    "expires_at": refresh["exp"],
-                    "revoked": False,
-                },
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'refresh_tokens'"
+                )
             )
+            available_cols = {row[0] for row in cols_res}
+            base_values = {
+                "jti": refresh["jti"],
+                "admin_id": admin.id,
+                "expires_at": refresh["exp"],
+                "revoked": False,
+                "created_at": datetime.utcnow(),
+            }
+            use_keys = [k for k in base_values.keys() if k in available_cols]
+            if not {"jti", "admin_id"}.issubset(set(use_keys)):
+                # لا يمكن الإدراج دون هذه الأعمدة الأساسية
+                raise RuntimeError("refresh_tokens missing required columns (jti, admin_id)")
+            columns_csv = ", ".join(use_keys)
+            placeholders = ", ".join(f":{k}" for k in use_keys)
+            sql = f"INSERT INTO refresh_tokens ({columns_csv}) VALUES ({placeholders})"
+            params = {k: base_values[k] for k in use_keys}
+            db.execute(text(sql), params)
             db.commit()
         except Exception as e2:
             db.rollback()
-            print("[ERROR] minimal refresh_tokens insert failed:", e2)
+            print("[ERROR] minimal/dynamic refresh_tokens insert failed:", e2)
             raise HTTPException(status_code=500, detail="database_error")
 
     # اجعل رمز الوصول يحمل sid (يشير إلى جلسة الريفريش)
