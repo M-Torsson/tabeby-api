@@ -55,7 +55,7 @@ def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = Depends
     # حمّل فقط الأعمدة اللازمة لتجنّب فشل SELECT إذا كانت أعمدة اختيارية غير موجودة في المخطط
     admin = (
         db.query(models.Admin)
-        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.is_active))
+        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.is_active, models.Admin.is_superuser))
         .filter_by(id=int(admin_id))
         .first()
     )

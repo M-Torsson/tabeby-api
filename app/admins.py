@@ -9,21 +9,38 @@ from .auth import get_db, get_current_admin
 router = APIRouter(prefix="/admins", tags=["Admins"])
 
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "muthana.tursson@gmail.com").lower()
+AUTO_PROMOTE_FIRST_ADMIN = os.getenv("AUTO_PROMOTE_FIRST_ADMIN", "true").lower() in ("1", "true", "yes")
 
 
-def ensure_admin_power(current_admin: models.Admin):
+def ensure_admin_power(current_admin: models.Admin, db: Session):
     # يُسمح لمن لديه is_superuser أو بريد السوبر الأدمن المُحدد
     if current_admin.is_superuser:
         return
-    if (current_admin.email or "").lower() == SUPER_ADMIN_EMAIL:
+    if (current_admin.email or "").strip().lower() == SUPER_ADMIN_EMAIL:
+        return
+    # في حال لا يوجد أي superuser في النظام، فعِّل ترقية أول إدمن تلقائياً عند الحاجة
+    any_super = (
+        db.query(models.Admin)
+        .options(load_only(models.Admin.id, models.Admin.is_superuser))
+        .filter_by(is_superuser=True)
+        .first()
+    )
+    if not any_super and AUTO_PROMOTE_FIRST_ADMIN:
+        current_admin.is_superuser = True
+        db.add(current_admin)
+        db.commit()
         return
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ليست لديك صلاحية كافية")
 
 
 @router.get("/", response_model=List[schemas.AdminBrief])
 def list_admins(db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    ensure_admin_power(current_admin)
-    admins = db.query(models.Admin).all()
+    ensure_admin_power(current_admin, db)
+    admins = (
+        db.query(models.Admin)
+        .options(load_only(models.Admin.id, models.Admin.name, models.Admin.email, models.Admin.is_superuser))
+        .all()
+    )
     # ابنِ تمثيلاً موجزاً يتضمن الدور
     result = []
     for a in admins:
@@ -38,7 +55,7 @@ def list_admins(db: Session = Depends(get_db), current_admin: models.Admin = Dep
 
 @router.patch("/{admin_id}", response_model=schemas.AdminBrief)
 def update_admin(admin_id: int, payload: schemas.AdminAdminUpdate, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    ensure_admin_power(current_admin)
+    ensure_admin_power(current_admin, db)
 
     admin = (
         db.query(models.Admin)
@@ -55,7 +72,12 @@ def update_admin(admin_id: int, payload: schemas.AdminAdminUpdate, db: Session =
         admin.name = payload.name
         changed = True
     if payload.email is not None:
-        exists = db.query(models.Admin).filter(models.Admin.email == payload.email, models.Admin.id != admin.id).first()
+        exists = (
+            db.query(models.Admin)
+            .options(load_only(models.Admin.id, models.Admin.email))
+            .filter(models.Admin.email == payload.email, models.Admin.id != admin.id)
+            .first()
+        )
         if exists:
             raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
         admin.email = payload.email
@@ -82,7 +104,7 @@ def update_admin(admin_id: int, payload: schemas.AdminAdminUpdate, db: Session =
 
 @router.delete("/{admin_id}")
 def delete_admin(admin_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    ensure_admin_power(current_admin)
+    ensure_admin_power(current_admin, db)
 
     admin = (
         db.query(models.Admin)
