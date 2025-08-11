@@ -8,6 +8,26 @@ from .auth import get_db, get_current_admin
 
 router = APIRouter(prefix="/admins", tags=["Admins"])
 
+# نقطة ترقية إدمن إلى سوبر أدمن (تشخيصية)
+@router.post("/{admin_id}/promote", response_model=schemas.AdminBrief, include_in_schema=False)
+def promote_admin(admin_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    # يسمح فقط لسوبر أدمن حالي أو صاحب البريد المسجل كـ SUPER_ADMIN_EMAIL
+    if not (current_admin.is_superuser or (current_admin.email or '').lower() == SUPER_ADMIN_EMAIL):
+        raise HTTPException(status_code=403, detail="غير مسموح")
+    admin = db.query(models.Admin).filter_by(id=admin_id).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="المستخدم غير موجود")
+    admin.is_superuser = True
+    db.add(admin)
+    db.commit()
+    db.refresh(admin)
+    return {
+        "id": admin.id,
+        "name": admin.name,
+        "email": admin.email,
+        "role": "super-admin",
+    }
+
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "muthana.tursson@gmail.com").lower()
 AUTO_PROMOTE_FIRST_ADMIN = os.getenv("AUTO_PROMOTE_FIRST_ADMIN", "true").lower() in ("1", "true", "yes")
 
