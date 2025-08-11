@@ -83,6 +83,16 @@ def update_security(payload: schemas.SecurityUpdate, db: Session = Depends(get_d
     return {"message": "تم تحديث إعدادات الأمان"}
 
 
+@router.get("/me/security")
+def get_security(current_admin: models.Admin = Depends(get_current_admin)):
+    return {
+        "two_factor_enabled": current_admin.two_factor_enabled or False,
+        "email_security_alerts": current_admin.email_security_alerts or False,
+        "push_login_alerts": current_admin.push_login_alerts or False,
+        "critical_only": current_admin.critical_only or False,
+    }
+
+
 # ===== 2FA =====
 @router.post("/me/2fa/setup", response_model=schemas.TwoFASetupResponse)
 def setup_2fa(current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):

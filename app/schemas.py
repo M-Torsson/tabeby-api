@@ -43,7 +43,9 @@ class TokenPair(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    model_config = ConfigDict(populate_by_name=True)
+    # يقبل refreshToken (camelCase) و refresh_token (snake_case)
+    refresh_token: str = Field(validation_alias="refreshToken")
 
 
 # ===== User/Profile updates =====

@@ -96,7 +96,7 @@ async def register_admin(request: Request, db: Session = Depends(get_db)):
     return schemas.AdminOut.model_validate(admin, from_attributes=True)
 
 
-@router.post("/login", response_model=schemas.TokenPair)
+@router.post("/login")
 async def login(request: Request, db: Session = Depends(get_db)):
     # دعم JSON أو form: إذا كان Content-Type JSON نقرأ الحقول email/password، وإلا نقرأ form username/password
     email: Optional[str] = None
@@ -140,7 +140,14 @@ async def login(request: Request, db: Session = Depends(get_db)):
     # اجعل رمز الوصول يحمل sid (يشير إلى جلسة الريفريش)
     access = create_access_token(subject=str(admin.id), extra={"sid": refresh["jti"]})
 
-    return {"access_token": access["token"], "refresh_token": refresh["token"]}
+    # أعد الاستجابة داخل data كما طلب الفرونت، بصيغة camelCase
+    return {
+        "data": {
+            "accessToken": access["token"],
+            "refreshToken": refresh["token"],
+            "tokenType": "bearer",
+        }
+    }
 
 
 @router.post("/logout")
@@ -175,7 +182,7 @@ def change_password(payload: schemas.ChangePasswordRequest, db: Session = Depend
     return {"message": "تم تغيير كلمة المرور"}
 
 
-@router.post("/refresh", response_model=schemas.TokenPair)
+@router.post("/refresh")
 def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db)):
     try:
         data = decode_token(payload.refresh_token)
@@ -217,7 +224,13 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
     )
     db.commit()
 
-    return {"access_token": access["token"], "refresh_token": new_refresh["token"]}
+    return {
+        "data": {
+            "accessToken": access["token"],
+            "refreshToken": new_refresh["token"],
+            "tokenType": "bearer",
+        }
+    }
 
 
 # ===== Password reset flow =====
