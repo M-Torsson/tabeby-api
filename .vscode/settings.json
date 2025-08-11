@@ -1,0 +1,6 @@
+{
+  "python.defaultInterpreterPath": "F:/tabeby-api/.venv/Scripts/python.exe",
+  "python.analysis.extraPaths": [
+    "F:/tabeby-api/.venv/Lib/site-packages"
+  ]
+}

@@ -2,7 +2,14 @@ from io import StringIO
 import csv
 from fastapi import APIRouter, Depends, HTTPException
 import secrets
-import pyotp
+import importlib
+from typing import Any
+ 
+# Dynamically import pyotp to avoid static analysis import errors; fail gracefully at runtime if missing
+try:
+    pyotp: Any = importlib.import_module("pyotp")  # type: ignore
+except Exception:
+    pyotp = None  # type: ignore
 from sqlalchemy.orm import Session
 
 from .auth import get_current_admin, get_db, oauth2_scheme
@@ -10,6 +17,11 @@ from .security import decode_token
 from . import models, schemas
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
+
+def _require_pyotp():
+    if pyotp is None:  # type: ignore
+        raise HTTPException(status_code=500, detail="pyotp is not installed. Please install 'pyotp' in the active environment.")
 
 
 @router.get("/me", response_model=schemas.AdminOut)
@@ -74,6 +86,7 @@ def update_security(payload: schemas.SecurityUpdate, db: Session = Depends(get_d
 # ===== 2FA =====
 @router.post("/me/2fa/setup", response_model=schemas.TwoFASetupResponse)
 def setup_2fa(current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    _require_pyotp()
     # أنشئ سرّ TOTP جديد واحفظه مؤقتاً في two_factor_secret
     secret = pyotp.random_base32()
     current_admin.two_factor_secret = secret
@@ -90,6 +103,7 @@ def setup_2fa(current_admin: models.Admin = Depends(get_current_admin), db: Sess
 
 @router.post("/me/2fa/enable", response_model=schemas.TwoFAStatusResponse)
 def enable_2fa(payload: schemas.TwoFAEnableRequest, current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    _require_pyotp()
     if not current_admin.two_factor_secret:
         raise HTTPException(status_code=400, detail="2FA secret not initialized")
     totp = pyotp.TOTP(current_admin.two_factor_secret)
@@ -103,6 +117,7 @@ def enable_2fa(payload: schemas.TwoFAEnableRequest, current_admin: models.Admin 
 
 @router.post("/me/2fa/disable", response_model=schemas.TwoFAStatusResponse)
 def disable_2fa(payload: schemas.TwoFAEnableRequest | None = None, current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    _require_pyotp()
     # يمكن اشتراط كود لتعطيل 2FA
     if current_admin.two_factor_enabled and payload and current_admin.two_factor_secret:
         totp = pyotp.TOTP(current_admin.two_factor_secret)
