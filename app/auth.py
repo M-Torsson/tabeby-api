@@ -128,6 +128,10 @@ async def login(request: Request, db: Session = Depends(get_db)):
 
     # أنشئ رمز التحديث أولاً وسجّل بيانات الجلسة
     refresh = create_refresh_token(subject=str(admin.id))
+    # ثبّت تاريخ الانتهاء ليكون naive (بدون tzinfo) لتفادي مشاكل Postgres
+    exp_val = refresh["exp"]
+    if isinstance(exp_val, datetime) and exp_val.tzinfo is not None:
+        exp_val = exp_val.replace(tzinfo=None)
     ua = request.headers.get("user-agent")
     ip = request.client.host if request.client else None
     # حاول إدراج سجل الجلسة مع البيانات الكاملة، وإن فشل بسبب اختلاف المخطط نفّذ إدراجاً بسيطاً
@@ -135,7 +139,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
         rt = models.RefreshToken(
             jti=refresh["jti"],
             admin_id=admin.id,
-            expires_at=refresh["exp"],
+            expires_at=exp_val,
             revoked=False,
             device=None,
             ip=ip,
@@ -159,7 +163,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
             base_values = {
                 "jti": refresh["jti"],
                 "admin_id": admin.id,
-                "expires_at": refresh["exp"],
+                "expires_at": exp_val,
                 "revoked": False,
                 "created_at": datetime.utcnow(),
             }
@@ -260,11 +264,14 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
     rt.revoked = True
     access = create_access_token(subject=str(admin.id))
     new_refresh = create_refresh_token(subject=str(admin.id))
+    new_exp = new_refresh["exp"]
+    if isinstance(new_exp, datetime) and new_exp.tzinfo is not None:
+        new_exp = new_exp.replace(tzinfo=None)
     db.add(
         models.RefreshToken(
             jti=new_refresh["jti"],
             admin_id=admin.id,
-            expires_at=new_refresh["exp"],
+            expires_at=new_exp,
             revoked=False,
         )
     )
