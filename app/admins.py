@@ -122,6 +122,12 @@ def list_admins(db: Session = Depends(get_db), current_admin: models.Admin = Dep
     return result
 
 
+# مسار توافق قديم إذا كان الفرونت ما زال يستدعي /admins/list (يفضل تحديثه إلى /admins)
+@router.get("/list", response_model=List[schemas.AdminBrief], include_in_schema=False)
+def list_admins_legacy(db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    return list_admins(db=db, current_admin=current_admin)
+
+
 @router.patch("/{admin_id}", response_model=schemas.AdminBrief)
 def update_admin(admin_id: int, payload: schemas.AdminAdminUpdate, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
     ensure_admin_power(current_admin, db)

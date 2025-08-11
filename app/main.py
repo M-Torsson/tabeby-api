@@ -57,6 +57,18 @@ app.include_router(users_router)
 app.include_router(admins_router)
 app.include_router(activities_router)
 
+# دعم مسار قديم /backend/admins/list لو أن الفرونت ما زال يستخدمه (يجب إزالته لاحقاً)
+from fastapi import APIRouter
+from .auth import get_current_admin  # استدعاء مباشر للدالة
+legacy_router = APIRouter(include_in_schema=False)
+
+@legacy_router.get("/backend/admins/list")
+def legacy_backend_admins_list(db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    from .admins import list_admins
+    return list_admins(db=db, current_admin=current_admin)
+
+app.include_router(legacy_router)
+
 # مسار الجذر لعرض رسالة بسيطة أو تحويل إلى الوثائق
 @app.get("/")
 def root():
