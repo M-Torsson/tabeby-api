@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session, load_only
-from sqlalchemy import text
+from sqlalchemy import text, func
 
 from .database import SessionLocal
 from . import models, schemas
@@ -67,18 +67,19 @@ async def register_admin(request: Request, db: Session = Depends(get_db)):
     if content_type.startswith("application/json"):
         data = await request.json()
         name = (data.get("name") or data.get("fullName") or "").strip()
-        email = (data.get("email") or "").strip()
+        email = (data.get("email") or "").strip().lower()
         password = data.get("password")
     else:
         form = await request.form()
         name = (form.get("name") or form.get("fullName") or "").strip()
-        email = (form.get("email") or "").strip()
+        email = (form.get("email") or "").strip().lower()
         password = form.get("password")
 
     if not name or not email or not password:
         raise HTTPException(status_code=400, detail="يجب إرسال name, email, password")
 
-    exists = db.query(models.Admin).filter_by(email=email).first()
+    # تحقق بشكل غير حساس لحالة الأحرف لتجنّب تكرار بنفس البريد بحروف كبيرة/صغيرة
+    exists = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
     if exists:
         raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
 
@@ -106,12 +107,12 @@ async def login(request: Request, db: Session = Depends(get_db)):
     content_type = request.headers.get("content-type", "").lower()
     if content_type.startswith("application/json"):
         data = await request.json()
-        email = (data.get("email") or data.get("username") or "").strip()
+        email = (data.get("email") or data.get("username") or "").strip().lower()
         password = data.get("password")
     else:
         form = await request.form()
         # OAuth2 form uses 'username'
-        email = (form.get("username") or form.get("email") or "").strip()
+        email = (form.get("username") or form.get("email") or "").strip().lower()
         password = form.get("password")
 
     if not email or not password:
@@ -120,7 +121,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
     admin: Optional[models.Admin] = (
         db.query(models.Admin)
         .options(load_only(models.Admin.id, models.Admin.email, models.Admin.password_hash, models.Admin.is_active))
-        .filter_by(email=email)
+        .filter(func.lower(models.Admin.email) == email)
         .first()
     )
     if not admin or not verify_password(password, admin.password_hash):
