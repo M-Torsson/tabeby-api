@@ -27,6 +27,7 @@ class AdminOut(BaseModel):
     email: EmailStr
     is_active: bool
     is_superuser: bool
+    two_factor_enabled: bool = False  # مُعاد للتوافق فقط (لا عمود في قاعدة البيانات)
 
 
 class LoginRequest(BaseModel):

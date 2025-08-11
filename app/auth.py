@@ -74,6 +74,7 @@ def auth_me(current_admin: models.Admin = Depends(get_current_admin)):
         "email": current_admin.email,
         "is_active": getattr(current_admin, "is_active", True),
         "is_superuser": getattr(current_admin, "is_superuser", False),
+        "two_factor_enabled": False,
     })
 
 
@@ -179,7 +180,7 @@ async def register_admin(request: Request, db: Session = Depends(get_db)):
                 "email": admin_row.email,
                 "is_active": admin_row.is_active,
                 "is_superuser": admin_row.is_superuser,
-                # 2FA removed
+                "two_factor_enabled": False,
             })
         except Exception as e2:
             db.rollback()
