@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -56,4 +56,20 @@ class PasswordResetToken(Base):
     expires_at = Column(DateTime, nullable=False)
     used = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Activity(Base):
+    __tablename__ = "activities"
+
+    # معرف نصي (UUID مثلاً)
+    id = Column(String, primary_key=True)
+    admin_id = Column(Integer, ForeignKey("admins.id", ondelete="CASCADE"), index=True, nullable=False)
+    type = Column(String, index=True, nullable=False)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    status = Column(String, index=True, nullable=False)
+    at = Column(DateTime, index=True, nullable=False, default=datetime.utcnow)
+
+# فهارس مفيدة
+Index("ix_activities_admin_at_desc", models.Activity.admin_id, models.Activity.at.desc()) if False else None
 

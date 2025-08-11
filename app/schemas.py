@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, ConfigDict
-from typing import Literal
+from typing import Literal, Optional, List
+from datetime import datetime
 
 class PatientCreate(BaseModel):
     name: str
@@ -86,4 +87,45 @@ class VerifyResetResponse(BaseModel):
     valid: bool
     expires_in: int | None = None
     reason: Literal["invalid", "expired", "used"] | None = None
+
+
+# ===== Activity =====
+ActivityType = Literal[
+    "password_changed",
+    "login_new_device",
+    "profile_updated",
+    "security_modified",
+    "document_downloaded",
+    "new_device_registered",
+    "failed_login_attempt",
+    "account_recovery_initiated",
+    "security_alert",
+]
+
+ActivityStatus = Literal["success", "warning", "error", "info"]
+
+
+class ActivityCreate(BaseModel):
+    email: Optional[EmailStr] = None
+    type: ActivityType
+    title: str
+    description: Optional[str] = None
+    at: Optional[datetime] = None
+    status: ActivityStatus
+
+
+class ActivityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    type: ActivityType
+    title: str
+    description: Optional[str] = None
+    status: ActivityStatus
+    at: datetime
+
+
+class ActivityListResponse(BaseModel):
+    items: List[ActivityOut]
+    total: int
+    nextCursor: Optional[str] = None
 
