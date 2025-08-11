@@ -5,7 +5,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
+from sqlalchemy import text
 
 from .database import SessionLocal
 from . import models, schemas
@@ -116,7 +117,12 @@ async def login(request: Request, db: Session = Depends(get_db)):
     if not email or not password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="يجب إرسال البريد الإلكتروني وكلمة المرور")
 
-    admin: Optional[models.Admin] = db.query(models.Admin).filter_by(email=email).first()
+    admin: Optional[models.Admin] = (
+        db.query(models.Admin)
+        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.password_hash, models.Admin.is_active))
+        .filter_by(email=email)
+        .first()
+    )
     if not admin or not verify_password(password, admin.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="بيانات الدخول غير صحيحة")
 
@@ -124,18 +130,41 @@ async def login(request: Request, db: Session = Depends(get_db)):
     refresh = create_refresh_token(subject=str(admin.id))
     ua = request.headers.get("user-agent")
     ip = request.client.host if request.client else None
-    rt = models.RefreshToken(
-        jti=refresh["jti"],
-        admin_id=admin.id,
-        expires_at=refresh["exp"],
-        revoked=False,
-        device=None,
-        ip=ip,
-        user_agent=ua,
-        last_seen=datetime.utcnow(),
-    )
-    db.add(rt)
-    db.commit()
+    # حاول إدراج سجل الجلسة مع البيانات الكاملة، وإن فشل بسبب اختلاف المخطط نفّذ إدراجاً بسيطاً
+    try:
+        rt = models.RefreshToken(
+            jti=refresh["jti"],
+            admin_id=admin.id,
+            expires_at=refresh["exp"],
+            revoked=False,
+            device=None,
+            ip=ip,
+            user_agent=ua,
+            last_seen=datetime.utcnow(),
+        )
+        db.add(rt)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        # طباعة للّوج أثناء التطوير/النشر لتشخيص الأعمدة المفقودة
+        print("[WARN] refresh_tokens insert failed, falling back to minimal insert:", e)
+        try:
+            db.execute(
+                text(
+                    "INSERT INTO refresh_tokens (jti, admin_id, expires_at, revoked) VALUES (:jti, :admin_id, :expires_at, :revoked)"
+                ),
+                {
+                    "jti": refresh["jti"],
+                    "admin_id": admin.id,
+                    "expires_at": refresh["exp"],
+                    "revoked": False,
+                },
+            )
+            db.commit()
+        except Exception as e2:
+            db.rollback()
+            print("[ERROR] minimal refresh_tokens insert failed:", e2)
+            raise HTTPException(status_code=500, detail="database_error")
 
     # اجعل رمز الوصول يحمل sid (يشير إلى جلسة الريفريش)
     access = create_access_token(subject=str(admin.id), extra={"sid": refresh["jti"]})
