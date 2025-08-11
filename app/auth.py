@@ -175,6 +175,11 @@ async def login(request: Request, db: Session = Depends(get_db)):
             "accessToken": access["token"],
             "refreshToken": refresh["token"],
             "tokenType": "bearer",
+            "user": {
+                "id": admin.id,
+                "name": admin.name,
+                "email": admin.email,
+            },
         }
     }
 
