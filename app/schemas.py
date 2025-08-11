@@ -27,7 +27,6 @@ class AdminOut(BaseModel):
     email: EmailStr
     is_active: bool
     is_superuser: bool
-    two_factor_enabled: bool | None = False
 
 
 class LoginRequest(BaseModel):
@@ -61,7 +60,6 @@ class ChangePasswordRequest(BaseModel):
 
 class SecurityUpdate(BaseModel):
     revoke_all_sessions: bool | None = None
-    two_factor_enabled: bool | None = None
     email_security_alerts: bool | None = None
     push_login_alerts: bool | None = None
     critical_only: bool | None = None

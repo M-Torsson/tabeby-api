@@ -21,12 +21,7 @@ class Admin(Base):
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    # 2FA and security preferences
-    two_factor_secret = Column(String, nullable=True)
-    two_factor_enabled = Column(Boolean, default=False)
-    email_security_alerts = Column(Boolean, default=True)
-    push_login_alerts = Column(Boolean, default=False)
-    critical_only = Column(Boolean, default=False)
+    # تمت إزالة دعم 2FA وتفضيلات التنبيه لتبسيط النظام
 
     refresh_tokens = relationship("RefreshToken", back_populates="admin", cascade="all, delete-orphan")
 

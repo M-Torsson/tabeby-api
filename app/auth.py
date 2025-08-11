@@ -74,7 +74,6 @@ def auth_me(current_admin: models.Admin = Depends(get_current_admin)):
         "email": current_admin.email,
         "is_active": getattr(current_admin, "is_active", True),
         "is_superuser": getattr(current_admin, "is_superuser", False),
-        "two_factor_enabled": False,
     })
 
 
@@ -152,11 +151,7 @@ async def register_admin(request: Request, db: Session = Depends(get_db)):
                 "is_superuser": False,
                 "created_at": now,
                 # الأعمدة الاختيارية الجديدة، إن وُجدت سنمرر قيمها الافتراضية
-                "two_factor_secret": None,
-                "two_factor_enabled": False,
-                "email_security_alerts": True,
-                "push_login_alerts": False,
-                "critical_only": False,
+                # أزلنا أعمدة التفضيلات / 2FA إن وُجدت سابقاً
             }
             use_keys = [k for k in base_values.keys() if k in available_cols]
             missing_required = [k for k in must_have if k not in use_keys and k not in {"id"}]
@@ -184,7 +179,7 @@ async def register_admin(request: Request, db: Session = Depends(get_db)):
                 "email": admin_row.email,
                 "is_active": admin_row.is_active,
                 "is_superuser": admin_row.is_superuser,
-                "two_factor_enabled": False,
+                # 2FA removed
             })
         except Exception as e2:
             db.rollback()

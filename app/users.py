@@ -67,77 +67,19 @@ def export_me(current_admin: models.Admin = Depends(get_current_admin)):
 
 @router.patch("/me/security")
 def update_security(payload: schemas.SecurityUpdate, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    # إلغاء الجلسات
+    # إلغاء الجلسات فقط (أزلنا 2FA والتفضيلات)
     if payload.revoke_all_sessions:
         db.query(models.RefreshToken).filter_by(admin_id=current_admin.id, revoked=False).update({models.RefreshToken.revoked: True})
-    # تحديث تفضيلات الأمان
-    updated = False
-    for field in ["two_factor_enabled", "email_security_alerts", "push_login_alerts", "critical_only"]:
-        val = getattr(payload, field)
-        if val is not None:
-            setattr(current_admin, field, val)
-            updated = True
-    if updated:
-        db.add(current_admin)
-    db.commit()
-    return {"message": "تم تحديث إعدادات الأمان"}
+        db.commit()
+    return {"message": "تم"}
 
 
 @router.get("/me/security")
 def get_security(current_admin: models.Admin = Depends(get_current_admin)):
-    return {
-        "two_factor_enabled": current_admin.two_factor_enabled or False,
-        "email_security_alerts": current_admin.email_security_alerts or False,
-        "push_login_alerts": current_admin.push_login_alerts or False,
-        "critical_only": current_admin.critical_only or False,
-    }
+    return {}
 
 
-# ===== 2FA =====
-@router.post("/me/2fa/setup", response_model=schemas.TwoFASetupResponse)
-def setup_2fa(current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
-    _require_pyotp()
-    # أنشئ سرّ TOTP جديد واحفظه مؤقتاً في two_factor_secret
-    secret = pyotp.random_base32()
-    current_admin.two_factor_secret = secret
-    db.add(current_admin)
-    db.commit()
-
-    # otpauth URL
-    issuer = "Tabeby"
-    otpauth_url = pyotp.totp.TOTP(secret).provisioning_uri(name=current_admin.email, issuer_name=issuer)
-
-    # QR SVG (اختياري): سنعيد None لتبسيط التنفيذ الآن
-    return {"secret": secret, "otpauth_url": otpauth_url, "qr_svg": None}
-
-
-@router.post("/me/2fa/enable", response_model=schemas.TwoFAStatusResponse)
-def enable_2fa(payload: schemas.TwoFAEnableRequest, current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
-    _require_pyotp()
-    if not current_admin.two_factor_secret:
-        raise HTTPException(status_code=400, detail="2FA secret not initialized")
-    totp = pyotp.TOTP(current_admin.two_factor_secret)
-    if not totp.verify(payload.code, valid_window=1):
-        raise HTTPException(status_code=400, detail="Invalid 2FA code")
-    current_admin.two_factor_enabled = True
-    db.add(current_admin)
-    db.commit()
-    return {"two_factor_enabled": True}
-
-
-@router.post("/me/2fa/disable", response_model=schemas.TwoFAStatusResponse)
-def disable_2fa(payload: schemas.TwoFAEnableRequest | None = None, current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
-    _require_pyotp()
-    # يمكن اشتراط كود لتعطيل 2FA
-    if current_admin.two_factor_enabled and payload and current_admin.two_factor_secret:
-        totp = pyotp.TOTP(current_admin.two_factor_secret)
-        if not totp.verify(payload.code, valid_window=1):
-            raise HTTPException(status_code=400, detail="Invalid 2FA code")
-    current_admin.two_factor_enabled = False
-    current_admin.two_factor_secret = None
-    db.add(current_admin)
-    db.commit()
-    return {"two_factor_enabled": False}
+# تم حذف مسارات 2FA بالكامل
 
 
 # ===== Sessions =====
