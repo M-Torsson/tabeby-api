@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, APIRouter
 from sqlalchemy.orm import Session
 from .database import Base, engine, SessionLocal
 from . import models, schemas
@@ -56,6 +56,51 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(admins_router)
 app.include_router(activities_router)
+
+# راوتر توافق لطلبـات قديمة تبدأ بـ /backend (مخفى عن الوثائق)
+from .auth import get_current_admin
+from sqlalchemy.orm import Session, load_only
+from .database import SessionLocal
+from . import models
+backend_router = APIRouter(prefix="/backend", include_in_schema=False)
+backend_router.include_router(auth_router)
+backend_router.include_router(users_router)
+backend_router.include_router(admins_router)
+backend_router.include_router(activities_router)
+
+# /backend/me  => /users/me
+def _light_admin(admin_id: int):
+    db = SessionLocal()
+    try:
+        a = db.query(models.Admin).options(load_only(models.Admin.id, models.Admin.name, models.Admin.email, models.Admin.is_active, models.Admin.is_superuser)).filter_by(id=admin_id).first()
+        if not a:
+            return None
+        return {
+            "id": a.id,
+            "name": a.name,
+            "email": a.email,
+            "is_active": getattr(a, 'is_active', True),
+            "is_superuser": getattr(a, 'is_superuser', False),
+            "two_factor_enabled": False,
+        }
+    finally:
+        db.close()
+
+@backend_router.get("/me")
+def backend_me(current_admin: models.Admin = Depends(get_current_admin)):
+    return _light_admin(current_admin.id)
+
+# /backend/auth/me (بعض الواجهات تتوقعه)
+@backend_router.get("/auth/me")
+def backend_auth_me(current_admin: models.Admin = Depends(get_current_admin)):
+    return _light_admin(current_admin.id)
+
+# /backend/users/profile => تعيد نفس /users/me
+@backend_router.get("/users/profile")
+def backend_users_profile(current_admin: models.Admin = Depends(get_current_admin)):
+    return _light_admin(current_admin.id)
+
+app.include_router(backend_router)
 
 # دعم مسار قديم /backend/admins/list لو أن الفرونت ما زال يستخدمه (يجب إزالته لاحقاً)
 from fastapi import APIRouter
