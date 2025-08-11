@@ -15,18 +15,22 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Tabeby API")
 
 # CORS configuration: allow configured origins and any localhost/127.0.0.1 port by default
+
+# تحديث إعدادات CORS لتسمح بجميع الدومينات المطلوبة
 configured_origins = os.getenv("FRONTEND_ORIGINS")
 allow_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://tabeby-api.onrender.com",  # اختياري
+    "https://tabeby-api.onrender.com",
+    "https://tabeby.app",
+    "https://www.tabeby.app",
 ]
 if configured_origins:
-    allow_origins = [o.strip() for o in configured_origins.split(",") if o.strip()]
+    allow_origins += [o.strip() for o in configured_origins.split(",") if o.strip() and o.strip() not in allow_origins]
 
 allow_origin_regex = os.getenv(
     "FRONTEND_ORIGIN_REGEX",
-    r"^https?://(localhost|127\.0\.0\.1)(:\\d+)?$",
+    r"^https?://(localhost|127\.0\.0\.1|tabeby-api\.onrender\.com|tabeby\.app|www\.tabeby\.app)(:\\d+)?$",
 )
 
 app.add_middleware(
