@@ -237,19 +237,14 @@ async def login(request: Request, db: Session = Depends(get_db)):
             admin_id=admin_id_val,
             expires_at=exp_val,
             revoked=False,
-            device=None,
-            ip=ip,
-            user_agent=ua,
-            last_seen=datetime.utcnow(),
+            created_at=datetime.utcnow(),
         )
         db.add(rt)
         db.commit()
     except Exception as e:
         db.rollback()
-        # طباعة للّوج أثناء التطوير/النشر لتشخيص الأعمدة المفقودة
         print("[WARN] refresh_tokens insert failed, falling back to minimal insert:", e)
         try:
-            # اجلب معلومات الأعمدة: الاسم، السماحية، الافتراضي
             cols_res = db.execute(
                 text(
                     """
@@ -262,7 +257,6 @@ async def login(request: Request, db: Session = Depends(get_db)):
             cols = [(r[0], (r[1] or '').upper(), r[2]) for r in cols_res]
             available_cols = {c for c, _, _ in cols}
             must_have = {c for c, nul, d in cols if nul == 'NO' and d is None}
-
             now = datetime.utcnow()
             base_values = {
                 "jti": refresh["jti"],
@@ -270,19 +264,11 @@ async def login(request: Request, db: Session = Depends(get_db)):
                 "expires_at": exp_val,
                 "revoked": False,
                 "created_at": now,
-                "last_seen": now,
-                "device": None,
-                "ip": ip,
-                "user_agent": ua,
             }
-
             use_keys = [k for k in base_values.keys() if k in available_cols]
-
-            # تأكد من تضمين كل الأعمدة الإلزامية المعروفة لدينا، وإلا افشل برسالة واضحة
             missing_required = [k for k in must_have if k not in use_keys and k not in {"id"}]
             if missing_required:
                 raise RuntimeError(f"refresh_tokens missing required cols without defaults: {missing_required}")
-
             columns_csv = ", ".join(use_keys)
             placeholders = ", ".join(f":{k}" for k in use_keys)
             sql = f"INSERT INTO refresh_tokens ({columns_csv}) VALUES ({placeholders})"
@@ -356,7 +342,18 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="رمز ناقص البيانات")
 
     # تحقق من الرمز في قاعدة البيانات
-    rt: Optional[models.RefreshToken] = db.query(models.RefreshToken).filter_by(jti=jti).first()
+    from sqlalchemy.orm import load_only
+    rt: Optional[models.RefreshToken] = db.query(models.RefreshToken)
+    rt = rt.options(
+        load_only(
+            models.RefreshToken.id,
+            models.RefreshToken.jti,
+            models.RefreshToken.admin_id,
+            models.RefreshToken.expires_at,
+            models.RefreshToken.revoked,
+            models.RefreshToken.created_at,
+        )
+    ).filter_by(jti=jti).first()
     if not rt or rt.revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="تم إلغاء الرمز")
 
@@ -387,6 +384,7 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
                 admin_id=admin.id,
                 expires_at=new_exp,
                 revoked=False,
+                created_at=datetime.utcnow(),
             )
         )
         db.commit()
@@ -413,10 +411,6 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
                 "expires_at": new_exp,
                 "revoked": False,
                 "created_at": now,
-                "last_seen": now,
-                "device": None,
-                "ip": None,
-                "user_agent": None,
             }
             use_keys = [k for k in base_values.keys() if k in available_cols]
             missing_required = [k for k in must_have if k not in use_keys and k not in {"id"}]

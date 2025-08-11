@@ -85,7 +85,19 @@ def get_security(current_admin: models.Admin = Depends(get_current_admin)):
 # ===== Sessions =====
 @router.get("/me/sessions", response_model=list[schemas.SessionOut])
 def list_sessions(current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
-    sessions = db.query(models.RefreshToken).filter_by(admin_id=current_admin.id, revoked=False).order_by(models.RefreshToken.created_at.desc()).all()
+    from sqlalchemy.orm import load_only
+    sessions = db.query(models.RefreshToken)
+    sessions = sessions.options(
+        load_only(
+            models.RefreshToken.id,
+            models.RefreshToken.jti,
+            models.RefreshToken.admin_id,
+            models.RefreshToken.expires_at,
+            models.RefreshToken.revoked,
+            models.RefreshToken.created_at,
+        )
+    ).filter_by(admin_id=current_admin.id, revoked=False)
+    sessions = sessions.order_by(models.RefreshToken.created_at.desc()).all()
     # حدد current بمطابقة sid من رمز الوصول مع jti لرمز التحديث
     sid = None
     try:
