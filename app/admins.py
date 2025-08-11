@@ -1,7 +1,7 @@
 import os
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from . import models, schemas
 from .auth import get_db, get_current_admin
@@ -40,7 +40,12 @@ def list_admins(db: Session = Depends(get_db), current_admin: models.Admin = Dep
 def update_admin(admin_id: int, payload: schemas.AdminAdminUpdate, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
     ensure_admin_power(current_admin)
 
-    admin = db.get(models.Admin, admin_id)
+    admin = (
+        db.query(models.Admin)
+        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.is_superuser))
+        .filter_by(id=admin_id)
+        .first()
+    )
     if not admin:
         raise HTTPException(status_code=404, detail="المستخدم غير موجود")
 
@@ -79,7 +84,12 @@ def update_admin(admin_id: int, payload: schemas.AdminAdminUpdate, db: Session =
 def delete_admin(admin_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
     ensure_admin_power(current_admin)
 
-    admin = db.get(models.Admin, admin_id)
+    admin = (
+        db.query(models.Admin)
+        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.is_superuser))
+        .filter_by(id=admin_id)
+        .first()
+    )
     if not admin:
         raise HTTPException(status_code=404, detail="المستخدم غير موجود")
 

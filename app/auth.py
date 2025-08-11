@@ -52,7 +52,13 @@ def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = Depends
     if bl:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="تم تسجيل الخروج")
 
-    admin = db.get(models.Admin, int(admin_id))
+    # حمّل فقط الأعمدة اللازمة لتجنّب فشل SELECT إذا كانت أعمدة اختيارية غير موجودة في المخطط
+    admin = (
+        db.query(models.Admin)
+        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.is_active))
+        .filter_by(id=int(admin_id))
+        .first()
+    )
     if not admin or not admin.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="المستخدم غير متاح")
 
@@ -79,10 +85,16 @@ async def register_admin(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="يجب إرسال name, email, password")
 
     # تحقق بشكل غير حساس لحالة الأحرف لتجنّب تكرار بنفس البريد بحروف كبيرة/صغيرة
-    exists = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
+    exists = (
+        db.query(models.Admin)
+        .options(load_only(models.Admin.id, models.Admin.email))
+        .filter(func.lower(models.Admin.email) == email)
+        .first()
+    )
     if exists:
         raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
 
+    # حاول الإدراج عبر ORM، وإن فشل بسبب أعمدة غير موجودة (مخطط قديم) فسنستخدم إدراجاً ديناميكياً حسب الأعمدة المتاحة
     admin = models.Admin(
         name=name,
         email=email,
@@ -90,12 +102,81 @@ async def register_admin(request: Request, db: Session = Depends(get_db)):
         is_active=True,
         is_superuser=False,
     )
-    db.add(admin)
-    db.commit()
-    db.refresh(admin)
-
-    # أعد نموذج Pydantic صريحاً من خصائص ORM
-    return schemas.AdminOut.model_validate(admin, from_attributes=True)
+    try:
+        db.add(admin)
+        db.commit()
+        # ابنِ الاستجابة من حقول معروفة لتجنّب تحميل أعمدة غير موجودة
+        return schemas.AdminOut.model_validate({
+            "id": admin.id,
+            "name": admin.name,
+            "email": admin.email,
+            "is_active": admin.is_active,
+            "is_superuser": admin.is_superuser,
+            "two_factor_enabled": False,
+        })
+    except Exception as e:
+        db.rollback()
+        print("[WARN] admins insert via ORM failed, trying dynamic insert:", e)
+        try:
+            cols_res = db.execute(
+                text(
+                    """
+                    SELECT column_name, is_nullable, column_default
+                    FROM information_schema.columns
+                    WHERE table_name = 'admins' AND table_schema = 'public'
+                    """
+                )
+            )
+            cols = [(r[0], (r[1] or '').upper(), r[2]) for r in cols_res]
+            available_cols = {c for c, _, _ in cols}
+            must_have = {c for c, nul, d in cols if nul == 'NO' and d is None}
+            now = datetime.utcnow()
+            base_values = {
+                "name": name,
+                "email": email,
+                "password_hash": get_password_hash(password),
+                "is_active": True,
+                "is_superuser": False,
+                "created_at": now,
+                # الأعمدة الاختيارية الجديدة، إن وُجدت سنمرر قيمها الافتراضية
+                "two_factor_secret": None,
+                "two_factor_enabled": False,
+                "email_security_alerts": True,
+                "push_login_alerts": False,
+                "critical_only": False,
+            }
+            use_keys = [k for k in base_values.keys() if k in available_cols]
+            missing_required = [k for k in must_have if k not in use_keys and k not in {"id"}]
+            if missing_required:
+                # في جداول قديمة، عادة لا توجد أعمدة إلزامية إضافية
+                raise RuntimeError(f"admins missing required cols without defaults: {missing_required}")
+            columns_csv = ", ".join(use_keys)
+            placeholders = ", ".join(f":{k}" for k in use_keys)
+            sql = f"INSERT INTO admins ({columns_csv}) VALUES ({placeholders})"
+            params = {k: base_values[k] for k in use_keys}
+            db.execute(text(sql), params)
+            db.commit()
+            # اجلب السجل الذي أُدرج للتو بأعمدة آمنة
+            admin_row = (
+                db.query(models.Admin)
+                .options(load_only(models.Admin.id, models.Admin.name, models.Admin.email, models.Admin.is_active, models.Admin.is_superuser))
+                .filter(func.lower(models.Admin.email) == email)
+                .first()
+            )
+            if not admin_row:
+                raise HTTPException(status_code=500, detail="database_error")
+            return schemas.AdminOut.model_validate({
+                "id": admin_row.id,
+                "name": admin_row.name,
+                "email": admin_row.email,
+                "is_active": admin_row.is_active,
+                "is_superuser": admin_row.is_superuser,
+                "two_factor_enabled": False,
+            })
+        except Exception as e2:
+            db.rollback()
+            print("[ERROR] dynamic insert into admins failed:", e2)
+            raise HTTPException(status_code=500, detail="database_error")
 
 
 @router.post("/login")
@@ -120,15 +201,20 @@ async def login(request: Request, db: Session = Depends(get_db)):
 
     admin: Optional[models.Admin] = (
         db.query(models.Admin)
-        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.password_hash, models.Admin.is_active))
+        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.password_hash, models.Admin.is_active))
         .filter(func.lower(models.Admin.email) == email)
         .first()
     )
     if not admin or not verify_password(password, admin.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="بيانات الدخول غير صحيحة")
 
+    # خزّن الحقول قبل أي commit (حتى لا ت expire وتُحمل من قاعدة البيانات بأعمدة ناقصة)
+    admin_id_val = admin.id
+    admin_name_val = admin.name
+    admin_email_val = admin.email
+
     # أنشئ رمز التحديث أولاً وسجّل بيانات الجلسة
-    refresh = create_refresh_token(subject=str(admin.id))
+    refresh = create_refresh_token(subject=str(admin_id_val))
     # ثبّت تاريخ الانتهاء ليكون naive (بدون tzinfo) لتفادي مشاكل Postgres
     exp_val = refresh["exp"]
     if isinstance(exp_val, datetime) and exp_val.tzinfo is not None:
@@ -139,7 +225,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
     try:
         rt = models.RefreshToken(
             jti=refresh["jti"],
-            admin_id=admin.id,
+            admin_id=admin_id_val,
             expires_at=exp_val,
             revoked=False,
             device=None,
@@ -171,7 +257,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
             now = datetime.utcnow()
             base_values = {
                 "jti": refresh["jti"],
-                "admin_id": admin.id,
+                "admin_id": admin_id_val,
                 "expires_at": exp_val,
                 "revoked": False,
                 "created_at": now,
@@ -200,7 +286,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
             raise HTTPException(status_code=500, detail="database_error")
 
     # اجعل رمز الوصول يحمل sid (يشير إلى جلسة الريفريش)
-    access = create_access_token(subject=str(admin.id), extra={"sid": refresh["jti"]})
+    access = create_access_token(subject=str(admin_id_val), extra={"sid": refresh["jti"]})
 
     # أعد الاستجابة داخل data كما طلب الفرونت، بصيغة camelCase
     return {
@@ -208,11 +294,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
             "accessToken": access["token"],
             "refreshToken": refresh["token"],
             "tokenType": "bearer",
-            "user": {
-                "id": admin.id,
-                "name": admin.name,
-                "email": admin.email,
-            },
+            "user": {"id": admin_id_val, "name": admin_name_val, "email": admin_email_val},
         }
     }
 
@@ -273,7 +355,12 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
     if isinstance(rt.expires_at, datetime) and rt.expires_at.replace(tzinfo=None) < datetime.utcnow():
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="انتهت صلاحية الرمز")
 
-    admin = db.get(models.Admin, int(admin_id))
+    admin = (
+        db.query(models.Admin)
+        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.is_active))
+        .filter_by(id=int(admin_id))
+        .first()
+    )
     if not admin or not admin.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="المستخدم غير متاح")
 
@@ -392,7 +479,12 @@ def reset_password(payload: schemas.ResetPasswordRequest, db: Session = Depends(
     if prt.expires_at < datetime.utcnow():
         raise HTTPException(status_code=410, detail="expired")
 
-    admin = db.get(models.Admin, prt.admin_id)
+    admin = (
+        db.query(models.Admin)
+        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name))
+        .filter_by(id=prt.admin_id)
+        .first()
+    )
     if not admin:
         raise HTTPException(status_code=400, detail="invalid")
 
