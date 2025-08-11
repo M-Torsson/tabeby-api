@@ -153,24 +153,40 @@ async def login(request: Request, db: Session = Depends(get_db)):
         # طباعة للّوج أثناء التطوير/النشر لتشخيص الأعمدة المفقودة
         print("[WARN] refresh_tokens insert failed, falling back to minimal insert:", e)
         try:
-            # اجلب الأعمدة المتاحة فعلياً للجدول refresh_tokens
+            # اجلب معلومات الأعمدة: الاسم، السماحية، الافتراضي
             cols_res = db.execute(
                 text(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'refresh_tokens'"
+                    """
+                    SELECT column_name, is_nullable, column_default
+                    FROM information_schema.columns
+                    WHERE table_name = 'refresh_tokens' AND table_schema = 'public'
+                    """
                 )
             )
-            available_cols = {row[0] for row in cols_res}
+            cols = [(r[0], (r[1] or '').upper(), r[2]) for r in cols_res]
+            available_cols = {c for c, _, _ in cols}
+            must_have = {c for c, nul, d in cols if nul == 'NO' and d is None}
+
+            now = datetime.utcnow()
             base_values = {
                 "jti": refresh["jti"],
                 "admin_id": admin.id,
                 "expires_at": exp_val,
                 "revoked": False,
-                "created_at": datetime.utcnow(),
+                "created_at": now,
+                "last_seen": now,
+                "device": None,
+                "ip": ip,
+                "user_agent": ua,
             }
+
             use_keys = [k for k in base_values.keys() if k in available_cols]
-            if not {"jti", "admin_id"}.issubset(set(use_keys)):
-                # لا يمكن الإدراج دون هذه الأعمدة الأساسية
-                raise RuntimeError("refresh_tokens missing required columns (jti, admin_id)")
+
+            # تأكد من تضمين كل الأعمدة الإلزامية المعروفة لدينا، وإلا افشل برسالة واضحة
+            missing_required = [k for k in must_have if k not in use_keys and k not in {"id"}]
+            if missing_required:
+                raise RuntimeError(f"refresh_tokens missing required cols without defaults: {missing_required}")
+
             columns_csv = ", ".join(use_keys)
             placeholders = ", ".join(f":{k}" for k in use_keys)
             sql = f"INSERT INTO refresh_tokens ({columns_csv}) VALUES ({placeholders})"
@@ -267,15 +283,58 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
     new_exp = new_refresh["exp"]
     if isinstance(new_exp, datetime) and new_exp.tzinfo is not None:
         new_exp = new_exp.replace(tzinfo=None)
-    db.add(
-        models.RefreshToken(
-            jti=new_refresh["jti"],
-            admin_id=admin.id,
-            expires_at=new_exp,
-            revoked=False,
+    try:
+        db.add(
+            models.RefreshToken(
+                jti=new_refresh["jti"],
+                admin_id=admin.id,
+                expires_at=new_exp,
+                revoked=False,
+            )
         )
-    )
-    db.commit()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print("[WARN] refresh insert on rotate failed, trying dynamic insert:", e)
+        try:
+            cols_res = db.execute(
+                text(
+                    """
+                    SELECT column_name, is_nullable, column_default
+                    FROM information_schema.columns
+                    WHERE table_name = 'refresh_tokens' AND table_schema = 'public'
+                    """
+                )
+            )
+            cols = [(r[0], (r[1] or '').upper(), r[2]) for r in cols_res]
+            available_cols = {c for c, _, _ in cols}
+            must_have = {c for c, nul, d in cols if nul == 'NO' and d is None}
+            now = datetime.utcnow()
+            base_values = {
+                "jti": new_refresh["jti"],
+                "admin_id": admin.id,
+                "expires_at": new_exp,
+                "revoked": False,
+                "created_at": now,
+                "last_seen": now,
+                "device": None,
+                "ip": None,
+                "user_agent": None,
+            }
+            use_keys = [k for k in base_values.keys() if k in available_cols]
+            missing_required = [k for k in must_have if k not in use_keys and k not in {"id"}]
+            if missing_required:
+                raise RuntimeError(f"refresh_tokens missing required cols without defaults: {missing_required}")
+            columns_csv = ", ".join(use_keys)
+            placeholders = ", ".join(f":{k}" for k in use_keys)
+            sql = f"INSERT INTO refresh_tokens ({columns_csv}) VALUES ({placeholders})"
+            params = {k: base_values[k] for k in use_keys}
+            db.execute(text(sql), params)
+            db.commit()
+        except Exception as e2:
+            db.rollback()
+            print("[ERROR] dynamic insert on rotate failed:", e2)
+            raise HTTPException(status_code=500, detail="database_error")
 
     return {
         "data": {
