@@ -1,5 +1,5 @@
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Form
 from sqlalchemy.orm import Session, load_only
 from sqlalchemy import func
 
@@ -113,9 +113,16 @@ def _require_perm(perms: List[str], needed: str):
 
 
 @router.post("/staff/login")
-def staff_login(body: dict, db: Session = Depends(get_db)):
-    email = (body or {}).get("email")
-    password = (body or {}).get("password")
+def staff_login(
+    data: Optional[schemas.LoginRequest] = None,
+    email: Optional[str] = Form(default=None),
+    password: Optional[str] = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    # Accept JSON body (LoginRequest) or form-data fields gracefully
+    if data is not None:
+        email = data.email
+        password = data.password
     if not email or not password:
         raise HTTPException(status_code=400, detail="يجب إرسال البريد وكلمة المرور")
     s = db.query(models.Staff).filter(func.lower(models.Staff.email) == email.strip().lower()).first()
@@ -255,6 +262,9 @@ def create_staff(payload: schemas.StaffCreate, db: Session = Depends(get_db), cu
         phone=payload.phone,
         status=payload.status or "active",
     )
+    # If password provided on creation, store its hash (optional)
+    if payload.password:
+        staff.password_hash = get_password_hash(payload.password)
     db.add(staff)
     db.commit()
     db.refresh(staff)
