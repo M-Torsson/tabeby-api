@@ -109,9 +109,6 @@ def list_sessions(current_admin: models.Admin = Depends(get_current_admin), db: 
     for s in sessions:
         out.append({
             "id": s.id,
-            "device": s.device,
-            "ip": s.ip,
-            "last_seen": s.last_seen,
             "current": True if sid and sid == s.jti else False,
         })
     return out
