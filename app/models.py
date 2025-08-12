@@ -35,11 +35,7 @@ class RefreshToken(Base):
     expires_at = Column(DateTime, nullable=False)
     revoked = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    # session metadata
-    device = Column(String, nullable=True)
-    ip = Column(String, nullable=True)
-    user_agent = Column(String, nullable=True)
-    last_seen = Column(DateTime, nullable=True)
+    # session metadata (تمت إزالة الأعمدة غير الموجودة من قاعدة البيانات)
 
     admin = relationship("Admin", back_populates="refresh_tokens")
 
