@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session, load_only
 from sqlalchemy import func
 
 from .auth import get_current_admin, get_db
+from .security import get_password_hash
+from .mailer import send_password_reset
 from . import models, schemas
 from .rbac import all_permissions, default_roles
 
@@ -43,7 +45,10 @@ def _ensure_seed(db: Session):
 @router.get("/users/me", response_model=schemas.AdminOut)
 def users_me(current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
     _ensure_seed(db)
-    staff = db.query(models.Staff).options(load_only(models.Staff.id, models.Staff.role_id, models.Staff.role_key)).filter_by(email=current_admin.email).first()
+    # حاول إيجاد السجل عبر admin_id أولاً ثم عبر البريد للتوافق مع حسابات قديمة
+    staff = db.query(models.Staff).options(load_only(models.Staff.id, models.Staff.role_id, models.Staff.role_key)).filter_by(admin_id=current_admin.id).first()
+    if not staff:
+        staff = db.query(models.Staff).options(load_only(models.Staff.id, models.Staff.role_id, models.Staff.role_key)).filter_by(email=current_admin.email).first()
     perms = _collect_permissions(db, staff, current_admin)
     role_key = None
     if getattr(current_admin, "is_superuser", False):
@@ -169,7 +174,7 @@ def create_staff(payload: schemas.StaffCreate, db: Session = Depends(get_db), cu
         name=payload.name,
         email=payload.email.lower(),
         role_id=role.id if role else None,
-        role_key=role.key if role else None,
+        role_key=(role.key if role else (payload.role or "staff")),
         department=payload.department,
         phone=payload.phone,
         status=payload.status or "active",
@@ -178,7 +183,60 @@ def create_staff(payload: schemas.StaffCreate, db: Session = Depends(get_db), cu
     db.commit()
     db.refresh(staff)
 
-    # Optional invite or password provisioning is out-of-scope for now (no SMTP creds). We can add later.
+    # إنشاء حساب دخول (Admin) عند إرسال كلمة مرور، أو إرسال دعوة إن طُلب ذلك
+    if payload.password:
+        existing_admin = db.query(models.Admin).filter(func.lower(models.Admin.email) == staff.email.lower()).first()
+        if existing_admin:
+            staff.admin_id = existing_admin.id
+        else:
+            admin = models.Admin(
+                name=staff.name,
+                email=staff.email,
+                password_hash=get_password_hash(payload.password),
+                is_active=True,
+                is_superuser=False,
+            )
+            db.add(admin)
+            db.commit()
+            db.refresh(admin)
+            staff.admin_id = admin.id
+        db.add(staff)
+        db.commit()
+        db.refresh(staff)
+    elif payload.invite:
+        # إرسال رابط تعيين كلمة المرور لاحقاً (لو إعدادات البريد متوفرة)
+        # ملاحظة: سننشئ توكن إعادة تعيين ونطبعه/نرسله عبر مصفوفة البريد
+        import uuid
+        from datetime import datetime, timedelta
+        token = uuid.uuid4().hex + uuid.uuid4().hex
+        expires_at = datetime.utcnow() + timedelta(minutes=30)
+        # أنشئ حساب Admin مبدئي إن لم يوجد حتى نربطه لاحقاً بعد تعيين كلمة المرور
+        existing_admin = db.query(models.Admin).filter(func.lower(models.Admin.email) == staff.email.lower()).first()
+        if not existing_admin:
+            placeholder = models.Admin(
+                name=staff.name,
+                email=staff.email,
+                password_hash=get_password_hash(uuid.uuid4().hex),
+                is_active=True,
+                is_superuser=False,
+            )
+            db.add(placeholder)
+            db.commit()
+            db.refresh(placeholder)
+            staff.admin_id = placeholder.id
+            db.add(staff)
+            db.commit()
+            db.refresh(staff)
+            target_admin_id = placeholder.id
+        else:
+            target_admin_id = existing_admin.id
+        db.add(models.PasswordResetToken(token=token, admin_id=target_admin_id, expires_at=expires_at, used=False))
+        db.commit()
+        reset_link = f"/auth/reset?token={token}"
+        try:
+            send_password_reset(staff.email, reset_link)
+        except Exception:
+            pass
 
     return schemas.StaffItem(
         id=staff.id,
@@ -228,6 +286,13 @@ def update_staff(staff_id: int, payload: schemas.StaffUpdate, db: Session = Depe
         if exists:
             raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
         s.email = payload.email.lower()
+        # حدّث بريد حساب الدخول المرتبط إن وجد
+        if s.admin_id:
+            admin = db.query(models.Admin).filter_by(id=s.admin_id).first()
+            if admin:
+                admin.email = s.email
+                admin.name = s.name or admin.name
+                db.add(admin)
     if payload.name is not None:
         s.name = payload.name
     if payload.department is not None:
@@ -272,6 +337,79 @@ def update_staff(staff_id: int, payload: schemas.StaffUpdate, db: Session = Depe
         avatar_url=s.avatar_url,
         created_at=s.created_at,
     )
+
+
+@router.post("/staff/{staff_id}/provision")
+def provision_staff_account(staff_id: int, body: dict, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    # أنشئ/اربط حساب Admin لموظف موجود
+    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="غير موجود")
+    perms = _collect_permissions(db, s, current_admin)
+    _require_perm(perms, "staff.update")
+
+    password: Optional[str] = (body or {}).get("password")
+    invite: bool = bool((body or {}).get("invite"))
+
+    if s.admin_id and not password and not invite:
+        return {"message": "already provisioned"}
+
+    existing_admin = db.query(models.Admin).filter(func.lower(models.Admin.email) == s.email.lower()).first()
+    if password:
+        if existing_admin:
+            existing_admin.password_hash = get_password_hash(password)
+            admin_id = existing_admin.id
+            db.add(existing_admin)
+            db.commit()
+        else:
+            admin = models.Admin(
+                name=s.name,
+                email=s.email,
+                password_hash=get_password_hash(password),
+                is_active=True,
+                is_superuser=False,
+            )
+            db.add(admin)
+            db.commit()
+            db.refresh(admin)
+            admin_id = admin.id
+        s.admin_id = admin_id
+        db.add(s)
+        db.commit()
+        return {"message": "ok"}
+
+    if invite:
+        import uuid
+        from datetime import datetime, timedelta
+        if not existing_admin:
+            placeholder = models.Admin(
+                name=s.name,
+                email=s.email,
+                password_hash=get_password_hash(uuid.uuid4().hex),
+                is_active=True,
+                is_superuser=False,
+            )
+            db.add(placeholder)
+            db.commit()
+            db.refresh(placeholder)
+            s.admin_id = placeholder.id
+            db.add(s)
+            db.commit()
+            target_admin_id = placeholder.id
+        else:
+            target_admin_id = existing_admin.id
+        token = uuid.uuid4().hex + uuid.uuid4().hex
+        expires_at = datetime.utcnow() + timedelta(minutes=30)
+        db.add(models.PasswordResetToken(token=token, admin_id=target_admin_id, expires_at=expires_at, used=False))
+        db.commit()
+        reset_link = f"/auth/reset?token={token}"
+        try:
+            send_password_reset(s.email, reset_link)
+        except Exception:
+            pass
+        return {"message": "invited"}
+
+    return {"message": "no-op"}
 
 
 @router.delete("/staff/{staff_id}")
