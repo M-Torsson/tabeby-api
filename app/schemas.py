@@ -28,6 +28,11 @@ class AdminOut(BaseModel):
     is_active: bool
     is_superuser: bool
     two_factor_enabled: bool = False  # مُعاد للتوافق فقط (لا عمود في قاعدة البيانات)
+    # RBAC derived fields for frontend
+    is_admin: bool | None = None
+    is_staff: bool | None = None
+    role: str | None = None
+    permissions: list[str] | None = None
 
 
 class LoginRequest(BaseModel):
@@ -155,10 +160,62 @@ class TwoFAStatusResponse(BaseModel):
 # ===== Sessions =====
 class SessionOut(BaseModel):
     id: int
-    device: Optional[str] = None
-    ip: Optional[str] = None
-    last_seen: Optional[datetime] = None
     current: bool
+
+
+# ===== RBAC (Roles/Permissions/Staff) =====
+class RoleOut(BaseModel):
+    id: int
+    key: str
+    name: str
+    description: Optional[str] = None
+    permissions: list[str]
+
+
+class PermissionList(BaseModel):
+    items: list[str]
+
+
+class StaffItem(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    role: Optional[str] = None
+    role_id: Optional[int] = None
+    department: Optional[str] = None
+    phone: Optional[str] = None
+    status: Literal["active", "on_leave", "inactive"]
+    avatar_url: Optional[str] = None
+    created_at: datetime
+
+
+class StaffListResponse(BaseModel):
+    items: list[StaffItem]
+    total: int
+
+
+class StaffCreate(BaseModel):
+    name: str
+    email: EmailStr
+    role: Optional[str] = None
+    role_id: Optional[int] = None
+    department: Optional[str] = None
+    phone: Optional[str] = None
+    status: Optional[Literal["active", "on_leave", "inactive"]] = "active"
+    password: Optional[str] = None
+    invite: Optional[bool] = None
+
+
+class StaffUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    role: Optional[str] = None
+    role_id: Optional[int] = None
+    department: Optional[str] = None
+    phone: Optional[str] = None
+    status: Optional[Literal["active", "on_leave", "inactive"]] = None
+    avatar_url: Optional[str] = None
+    permissions: Optional[list[str]] = None
 
 
 # ===== Recovery Codes =====

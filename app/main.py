@@ -6,10 +6,11 @@ from . import models, schemas
 from .auth import router as auth_router
 from .users import router as users_router
 from .admins import router as admins_router
+from .staff_router import router as staff_rbac_router
 from .activities import router as activities_router
 from fastapi.middleware.cors import CORSMiddleware
 
-# إنشاء الجداول عند تشغيل التطبيق لأول مرة
+# إنشاء الجداول عند تشغيل التطبيق لأول مرة (بما في ذلك جداول RBAC الجديدة)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Tabeby API")
@@ -59,6 +60,7 @@ def health():
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(admins_router)
+app.include_router(staff_rbac_router)
 app.include_router(activities_router)
 
 # راوتر توافق لطلبـات قديمة تبدأ بـ /backend (مخفى عن الوثائق)
@@ -70,6 +72,7 @@ backend_router = APIRouter(prefix="/backend", include_in_schema=False)
 backend_router.include_router(auth_router)
 backend_router.include_router(users_router)
 backend_router.include_router(admins_router)
+backend_router.include_router(staff_rbac_router)
 backend_router.include_router(activities_router)
 
 # /backend/me  => /users/me

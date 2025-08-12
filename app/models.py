@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UniqueConstraint, Index, Table
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -24,6 +24,9 @@ class Admin(Base):
     # تمت إزالة دعم 2FA وتفضيلات التنبيه لتبسيط النظام
 
     refresh_tokens = relationship("RefreshToken", back_populates="admin", cascade="all, delete-orphan")
+
+    # RBAC linkage: an admin may also be a staff member (optional)
+    staff = relationship("Staff", back_populates="admin", uselist=False)
 
 
 class RefreshToken(Base):
@@ -84,4 +87,67 @@ class Activity(Base):
 
 # فهارس مفيدة
 Index("ix_activities_admin_at_desc", models.Activity.admin_id, models.Activity.at.desc()) if False else None
+
+# ===== RBAC: Roles, Permissions, Staff =====
+
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+
+    # relationship to role-permissions and staff
+    permissions = relationship("RolePermission", back_populates="role", cascade="all, delete-orphan")
+    staff = relationship("Staff", back_populates="role")
+
+
+class RolePermission(Base):
+    __tablename__ = "role_permissions"
+
+    id = Column(Integer, primary_key=True)
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="CASCADE"), index=True, nullable=False)
+    permission = Column(String, index=True, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("role_id", "permission", name="uq_role_permission"),
+    )
+
+    role = relationship("Role", back_populates="permissions")
+
+
+class Staff(Base):
+    __tablename__ = "staff"
+
+    id = Column(Integer, primary_key=True)
+    admin_id = Column(Integer, ForeignKey("admins.id", ondelete="SET NULL"), index=True, nullable=True)
+    name = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="SET NULL"), index=True, nullable=True)
+    role_key = Column(String, nullable=True)  # denormalized for quick reads
+    department = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    status = Column(String, index=True, nullable=False, default="active")
+    avatar_url = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    admin = relationship("Admin", back_populates="staff")
+    role = relationship("Role", back_populates="staff")
+
+    # direct extra permissions (optional per-user overrides)
+    permissions = relationship("StaffPermission", back_populates="staff", cascade="all, delete-orphan")
+
+
+class StaffPermission(Base):
+    __tablename__ = "staff_permissions"
+
+    id = Column(Integer, primary_key=True)
+    staff_id = Column(Integer, ForeignKey("staff.id", ondelete="CASCADE"), index=True, nullable=False)
+    permission = Column(String, index=True, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("staff_id", "permission", name="uq_staff_permission"),
+    )
+
+    staff = relationship("Staff", back_populates="permissions")
 

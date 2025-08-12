@@ -1,0 +1,313 @@
+from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session, load_only
+from sqlalchemy import func
+
+from .auth import get_current_admin, get_db
+from . import models, schemas
+from .rbac import all_permissions, default_roles
+
+router = APIRouter(tags=["Staff & RBAC"])
+
+
+def _collect_permissions(db: Session, staff: Optional[models.Staff], admin: models.Admin) -> List[str]:
+    # super-admin always all permissions
+    if getattr(admin, "is_superuser", False):
+        return all_permissions()
+
+    perms: set[str] = set()
+    if staff and staff.role_id:
+        role_perms = db.query(models.RolePermission).options(load_only(models.RolePermission.permission)).filter_by(role_id=staff.role_id).all()
+        perms.update(p.permission for p in role_perms)
+    if staff:
+        direct = db.query(models.StaffPermission).options(load_only(models.StaffPermission.permission)).filter_by(staff_id=staff.id).all()
+        perms.update(p.permission for p in direct)
+    return sorted(perms)
+
+
+def _ensure_seed(db: Session):
+    # seed roles only if table empty
+    count = db.query(models.Role).count()
+    if count:
+        return
+    defaults = default_roles()
+    for key, meta in defaults.items():
+        role = models.Role(key=key, name=meta.get("name") or key, description=meta.get("description"))
+        db.add(role)
+        db.flush()
+        for p in meta.get("permissions", []):
+            db.add(models.RolePermission(role_id=role.id, permission=p))
+    db.commit()
+
+
+@router.get("/users/me", response_model=schemas.AdminOut)
+def users_me(current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
+    _ensure_seed(db)
+    staff = db.query(models.Staff).options(load_only(models.Staff.id, models.Staff.role_id, models.Staff.role_key)).filter_by(email=current_admin.email).first()
+    perms = _collect_permissions(db, staff, current_admin)
+    role_key = None
+    if getattr(current_admin, "is_superuser", False):
+        role_key = "super-admin"
+    elif staff and staff.role_key:
+        role_key = staff.role_key
+    return schemas.AdminOut(
+        id=current_admin.id,
+        name=current_admin.name,
+        email=current_admin.email,
+        is_active=getattr(current_admin, "is_active", True),
+        is_superuser=getattr(current_admin, "is_superuser", False),
+        two_factor_enabled=False,
+        is_admin=bool(getattr(current_admin, "is_superuser", False)),
+        is_staff=bool(staff is not None),
+        role=role_key,
+        permissions=perms,
+    )
+
+
+@router.get("/permissions", response_model=schemas.PermissionList)
+def list_permissions(current_admin: models.Admin = Depends(get_current_admin)):
+    # Anyone authenticated can view permissions list (public catalog)
+    return schemas.PermissionList(items=all_permissions())
+
+
+@router.get("/roles", response_model=List[schemas.RoleOut])
+def list_roles(db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    _ensure_seed(db)
+    roles = db.query(models.Role).all()
+    out: List[schemas.RoleOut] = []
+    for r in roles:
+        perms = [rp.permission for rp in db.query(models.RolePermission).filter_by(role_id=r.id).all()]
+        out.append(schemas.RoleOut(id=r.id, key=r.key, name=r.name, description=r.description, permissions=perms))
+    return out
+
+
+@router.patch("/roles/{role_id}/permissions")
+def update_role_permissions(role_id: int, body: dict, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    if not getattr(current_admin, "is_superuser", False):
+        raise HTTPException(status_code=403, detail="غير مسموح")
+    perms: List[str] = body.get("permissions") or []
+    # validate
+    valid = set(all_permissions())
+    for p in perms:
+        if p not in valid:
+            raise HTTPException(status_code=400, detail=f"permission '{p}' is invalid")
+    role = db.query(models.Role).filter_by(id=role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="الدور غير موجود")
+    # replace
+    db.query(models.RolePermission).filter_by(role_id=role_id).delete()
+    for p in perms:
+        db.add(models.RolePermission(role_id=role_id, permission=p))
+    db.commit()
+    return {"message": "ok"}
+
+
+def _require_perm(perms: List[str], needed: str):
+    if needed not in perms:
+        raise HTTPException(status_code=403, detail="صلاحية غير كافية")
+
+
+@router.get("/staff", response_model=schemas.StaffListResponse)
+def list_staff(
+    search: Optional[str] = None,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(get_current_admin),
+):
+    _ensure_seed(db)
+    perms = _collect_permissions(db, None, current_admin)
+    _require_perm(perms, "staff.read")
+
+    q = db.query(models.Staff)
+    if search:
+        s = f"%{search.strip().lower()}%"
+        q = q.filter(func.lower(models.Staff.name).like(s) | func.lower(models.Staff.email).like(s))
+    total = q.count()
+    rows = q.order_by(models.Staff.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    items = [
+        schemas.StaffItem(
+            id=r.id,
+            name=r.name,
+            email=r.email,
+            role=r.role_key,
+            role_id=r.role_id,
+            department=r.department,
+            phone=r.phone,
+            status=r.status,
+            avatar_url=r.avatar_url,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]
+    return schemas.StaffListResponse(items=items, total=total)
+
+
+@router.post("/staff", response_model=schemas.StaffItem, status_code=201)
+def create_staff(payload: schemas.StaffCreate, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    _ensure_seed(db)
+    perms = _collect_permissions(db, None, current_admin)
+    _require_perm(perms, "staff.create")
+
+    exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == (payload.email or "").lower()).first()
+    if exists:
+        raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
+
+    role_id = payload.role_id
+    role_key = payload.role
+    role = None
+    if role_id:
+        role = db.query(models.Role).filter_by(id=role_id).first()
+        if not role:
+            raise HTTPException(status_code=400, detail="الدور غير موجود")
+    elif role_key:
+        role = db.query(models.Role).filter_by(key=role_key).first()
+        if not role:
+            raise HTTPException(status_code=400, detail="الدور غير موجود")
+
+    staff = models.Staff(
+        name=payload.name,
+        email=payload.email.lower(),
+        role_id=role.id if role else None,
+        role_key=role.key if role else None,
+        department=payload.department,
+        phone=payload.phone,
+        status=payload.status or "active",
+    )
+    db.add(staff)
+    db.commit()
+    db.refresh(staff)
+
+    # Optional invite or password provisioning is out-of-scope for now (no SMTP creds). We can add later.
+
+    return schemas.StaffItem(
+        id=staff.id,
+        name=staff.name,
+        email=staff.email,
+        role=staff.role_key,
+        role_id=staff.role_id,
+        department=staff.department,
+        phone=staff.phone,
+        status=staff.status,
+        avatar_url=staff.avatar_url,
+        created_at=staff.created_at,
+    )
+
+
+@router.get("/staff/{staff_id}", response_model=schemas.StaffItem)
+def get_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    perms = _collect_permissions(db, None, current_admin)
+    _require_perm(perms, "staff.read")
+    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="غير موجود")
+    return schemas.StaffItem(
+        id=s.id,
+        name=s.name,
+        email=s.email,
+        role=s.role_key,
+        role_id=s.role_id,
+        department=s.department,
+        phone=s.phone,
+        status=s.status,
+        avatar_url=s.avatar_url,
+        created_at=s.created_at,
+    )
+
+
+@router.patch("/staff/{staff_id}", response_model=schemas.StaffItem)
+def update_staff(staff_id: int, payload: schemas.StaffUpdate, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="غير موجود")
+    perms = _collect_permissions(db, s, current_admin)
+    _require_perm(perms, "staff.update")
+
+    if payload.email and payload.email.lower() != s.email.lower():
+        exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == payload.email.lower(), models.Staff.id != s.id).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
+        s.email = payload.email.lower()
+    if payload.name is not None:
+        s.name = payload.name
+    if payload.department is not None:
+        s.department = payload.department
+    if payload.phone is not None:
+        s.phone = payload.phone
+    if payload.status is not None:
+        s.status = payload.status
+    if payload.avatar_url is not None:
+        s.avatar_url = payload.avatar_url
+    if payload.role_id is not None or payload.role is not None:
+        role = None
+        if payload.role_id is not None:
+            role = db.query(models.Role).filter_by(id=payload.role_id).first()
+        elif payload.role is not None:
+            role = db.query(models.Role).filter_by(key=payload.role).first()
+        if not role:
+            raise HTTPException(status_code=400, detail="الدور غير موجود")
+        s.role_id = role.id
+        s.role_key = role.key
+    if payload.permissions is not None:
+        # replace direct permissions
+        db.query(models.StaffPermission).filter_by(staff_id=s.id).delete()
+        valid = set(all_permissions())
+        for p in payload.permissions:
+            if p not in valid:
+                raise HTTPException(status_code=400, detail=f"permission '{p}' is invalid")
+            db.add(models.StaffPermission(staff_id=s.id, permission=p))
+
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return schemas.StaffItem(
+        id=s.id,
+        name=s.name,
+        email=s.email,
+        role=s.role_key,
+        role_id=s.role_id,
+        department=s.department,
+        phone=s.phone,
+        status=s.status,
+        avatar_url=s.avatar_url,
+        created_at=s.created_at,
+    )
+
+
+@router.delete("/staff/{staff_id}")
+def delete_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="غير موجود")
+    perms = _collect_permissions(db, s, current_admin)
+    _require_perm(perms, "staff.delete")
+
+    db.delete(s)
+    db.commit()
+    return {"message": "deleted"}
+
+
+@router.post("/staff/{staff_id}/activate")
+def activate_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="غير موجود")
+    perms = _collect_permissions(db, s, current_admin)
+    _require_perm(perms, "staff.activate")
+    s.status = "active"
+    db.add(s)
+    db.commit()
+    return {"message": "ok"}
+
+
+@router.post("/staff/{staff_id}/deactivate")
+def deactivate_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="غير موجود")
+    perms = _collect_permissions(db, s, current_admin)
+    _require_perm(perms, "staff.activate")
+    s.status = "inactive"
+    db.add(s)
+    db.commit()
+    return {"message": "ok"}
