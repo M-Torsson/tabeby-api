@@ -130,6 +130,7 @@ class Staff(Base):
     phone = Column(String, nullable=True)
     status = Column(String, index=True, nullable=False, default="active")
     avatar_url = Column(String, nullable=True)
+    password_hash = Column(String, nullable=True)  # optional credential for staff login (separate from admins)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     admin = relationship("Admin", back_populates="staff")

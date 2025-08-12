@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, load_only
 from sqlalchemy import func
 
-from .auth import get_current_admin, get_db
+from .auth import get_current_admin, get_db, oauth2_scheme
+from .security import create_access_token, create_refresh_token, verify_password, get_password_hash, decode_token
 from . import models, schemas
 from .rbac import all_permissions, default_roles
 
@@ -106,6 +107,85 @@ def update_role_permissions(role_id: int, body: dict, db: Session = Depends(get_
 def _require_perm(perms: List[str], needed: str):
     if needed not in perms:
         raise HTTPException(status_code=403, detail="صلاحية غير كافية")
+
+
+# ===== Staff auth (separate from admins) =====
+
+
+@router.post("/staff/login")
+def staff_login(body: dict, db: Session = Depends(get_db)):
+    email = (body or {}).get("email")
+    password = (body or {}).get("password")
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="يجب إرسال البريد وكلمة المرور")
+    s = db.query(models.Staff).filter(func.lower(models.Staff.email) == email.strip().lower()).first()
+    if not s or not s.password_hash or not verify_password(password, s.password_hash) or s.status != "active":
+        raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
+    access = create_access_token(subject=f"staff:{s.id}", extra={"type": "staff"})
+    refresh = create_refresh_token(subject=f"staff:{s.id}")
+    return {
+        "data": {
+            "accessToken": access["token"],
+            "refreshToken": refresh["token"],
+            "tokenType": "bearer",
+            "user": {
+                "id": s.id,
+                "name": s.name,
+                "email": s.email,
+                "role": s.role_key,
+            },
+        }
+    }
+
+
+def get_current_staff(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> models.Staff:
+    try:
+        payload = decode_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="رمز الوصول غير صالح")
+    if payload.get("type") != "staff":
+        raise HTTPException(status_code=401, detail="نوع الرمز غير صحيح")
+    sub = payload.get("sub")
+    if not sub or not str(sub).startswith("staff:"):
+        raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
+    staff_id = int(str(sub).split(":",1)[1])
+    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    if not s or s.status != "active":
+        raise HTTPException(status_code=401, detail="المستخدم غير متاح")
+    return s
+
+
+@router.get("/staff/me", response_model=schemas.StaffItem)
+def staff_me(current_staff: models.Staff = Depends(get_current_staff)):
+    return schemas.StaffItem(
+        id=current_staff.id,
+        name=current_staff.name,
+        email=current_staff.email,
+        role=current_staff.role_key,
+        role_id=current_staff.role_id,
+        department=current_staff.department,
+        phone=current_staff.phone,
+        status=current_staff.status,
+        avatar_url=current_staff.avatar_url,
+        created_at=current_staff.created_at,
+    )
+
+
+@router.post("/staff/{staff_id}/set-password")
+def staff_set_password(staff_id: int, body: dict, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    # only admins with update permission can set staff password
+    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="غير موجود")
+    perms = _collect_permissions(db, s, current_admin)
+    _require_perm(perms, "staff.update")
+    pwd = (body or {}).get("password")
+    if not pwd:
+        raise HTTPException(status_code=400, detail="password مطلوب")
+    s.password_hash = get_password_hash(pwd)
+    db.add(s)
+    db.commit()
+    return {"message": "ok"}
 
 
 @router.get("/staff", response_model=schemas.StaffListResponse)
