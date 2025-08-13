@@ -2,7 +2,7 @@ from typing import Optional, List
 import os
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Form, Request, Response
 from sqlalchemy.orm import Session, load_only
-from sqlalchemy import func, text
+from sqlalchemy import func, text, inspect
 from datetime import datetime
 
 from .auth import get_current_admin, get_db, oauth2_scheme
@@ -68,13 +68,23 @@ def _ensure_staff_table(db: Session):
 
 
 def _staff_available_columns(db: Session) -> set[str]:
+    # Try SQLAlchemy inspector first (works across SQLite/Postgres/etc.)
+    try:
+        bind = db.get_bind()
+        if bind is not None:
+            insp = inspect(bind)
+            cols = [c.get("name") for c in insp.get_columns("staff")]  # type: ignore
+            return {c for c in cols if c}
+    except Exception:
+        pass
+    # Fallback to Postgres information_schema
     try:
         rows = db.execute(
             text(
                 """
                 SELECT column_name
                 FROM information_schema.columns
-                WHERE table_name = 'staff' AND table_schema = 'public'
+                WHERE table_name = 'staff'
                 """
             )
         )
@@ -179,20 +189,9 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="يجب إرسال البريد وكلمة المرور")
 
     try:
-        # Fetch staff row using only available columns to avoid UndefinedColumn errors
-        cols = _staff_available_columns(db)
-        if not cols or "email" not in cols:
-            raise RuntimeError("staff table missing or email column absent")
-        select_cols = ["id", "email", "password_hash", "status"]
-        if "name" in cols:
-            select_cols.append("name")
-        if "role_key" in cols:
-            select_cols.append("role_key")
-        # Build dynamic query
-        columns_csv = ", ".join(select_cols)
         row = (
             db.execute(
-                text(f"SELECT {columns_csv} FROM staff WHERE LOWER(email)=:e LIMIT 1"),
+            text("SELECT * FROM staff WHERE LOWER(email)=:e LIMIT 1"),
                 {"e": email.lower()},
             )
             .mappings()
@@ -201,8 +200,8 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
         if not row:
             raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
         # Validate password and status
-        pwd_hash = row.get("password_hash")
-        status_val = row.get("status", "active")
+        pwd_hash = row.get("password_hash") if hasattr(row, "get") else row["password_hash"] if "password_hash" in row else None
+        status_val = (row.get("status") if hasattr(row, "get") else (row["status"] if "status" in row else None)) or "active"
         if not pwd_hash or not verify_password(password, pwd_hash) or status_val != "active":
             raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
 
@@ -210,12 +209,10 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
         class _Obj:
             pass
         s = _Obj()
-        s.id = int(row.get("id")) if row.get("id") is not None else 0
-        s.name = row.get("name") or email.split("@")[0]
-        s.email = row.get("email") or email
-        s.role_key = row.get("role_key") or "staff"
-        if not s or not s.password_hash or not verify_password(password, s.password_hash) or s.status != "active":
-            raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
+        s.id = int((row.get("id") if hasattr(row, "get") else row["id"])) if ("id" in row) else 0
+        s.name = (row.get("name") if hasattr(row, "get") else (row["name"] if "name" in row else None)) or email.split("@")[0]
+        s.email = (row.get("email") if hasattr(row, "get") else (row["email"] if "email" in row else None)) or email
+        s.role_key = (row.get("role_key") if hasattr(row, "get") else (row["role_key"] if "role_key" in row else None)) or "staff"
 
         access = create_access_token(subject=f"staff:{s.id}", extra={"type": "staff"})
         refresh = create_refresh_token(subject=f"staff:{s.id}")
