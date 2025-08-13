@@ -266,36 +266,22 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
     try:
         payload = schemas.StaffCreate.model_validate(data)
     except Exception:
-        raise HTTPException(status_code=400, detail="بيانات غير صالحة، تأكد من الحقول المطلوبة")
+        raise HTTPException(status_code=400, detail="يجب إرسال email و password (واسم اختياري)")
 
-    exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == (payload.email or "").lower()).first()
+    exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == payload.email.lower()).first()
     if exists:
         raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
 
-    role_id = payload.role_id
-    role_key = payload.role
-    role = None
-    if role_id:
-        role = db.query(models.Role).filter_by(id=role_id).first()
-        if not role:
-            raise HTTPException(status_code=400, detail="الدور غير موجود")
-    elif role_key:
-        role = db.query(models.Role).filter_by(key=role_key).first()
-        if not role:
-            raise HTTPException(status_code=400, detail="الدور غير موجود")
-
     staff = models.Staff(
-        name=payload.name,
+        name=(payload.name or payload.email.split("@")[0]),
         email=payload.email.lower(),
-        role_id=role.id if role else None,
-        role_key=(role.key if role else (payload.role or "staff")),
-        department=payload.department,
-        phone=payload.phone,
-        status=(payload.status or "active"),
+        role_id=None,
+        role_key="staff",
+        department=None,
+        phone=None,
+        status="active",
+        password_hash=get_password_hash(payload.password),
     )
-    # If password provided on creation, store its hash (optional)
-    if payload.password:
-        staff.password_hash = get_password_hash(payload.password)
     try:
         db.add(staff)
         db.commit()
@@ -353,15 +339,15 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
             now = datetime.utcnow()
             base_values = {
                 "admin_id": None,
-                "name": payload.name,
+                "name": (payload.name or payload.email.split("@")[0]),
                 "email": payload.email.lower(),
-                "role_id": (role.id if role else None),
-                "role_key": (role.key if role else (payload.role or "staff")),
-                "department": payload.department,
-                "phone": payload.phone,
-                "status": (payload.status or "active"),
+                "role_id": None,
+                "role_key": "staff",
+                "department": None,
+                "phone": None,
+                "status": "active",
                 "avatar_url": None,
-                "password_hash": (get_password_hash(payload.password) if payload.password else None),
+                "password_hash": get_password_hash(payload.password),
                 "created_at": now,
             }
             use_keys = [k for k in base_values.keys() if k in available]
@@ -382,13 +368,13 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
             new_id = id_row[0] if id_row else None
             return schemas.StaffItem(
                 id=int(new_id) if new_id is not None else 0,
-                name=payload.name,
+                name=(payload.name or payload.email.split("@")[0]),
                 email=payload.email.lower(),
-                role=(role.key if role else (payload.role or "staff")),
-                role_id=(role.id if role else None),
-                department=payload.department,
-                phone=payload.phone,
-                status=(payload.status or "active"),
+                role="staff",
+                role_id=None,
+                department=None,
+                phone=None,
+                status="active",
                 avatar_url=None,
                 created_at=now,
             )

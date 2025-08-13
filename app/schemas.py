@@ -195,15 +195,9 @@ class StaffListResponse(BaseModel):
 
 
 class StaffCreate(BaseModel):
-    name: str
     email: EmailStr
-    role: Optional[str] = None
-    role_id: Optional[int] = None
-    department: Optional[str] = None
-    phone: Optional[str] = None
-    status: Optional[Literal["active", "on_leave", "inactive"]] = "active"
-    password: Optional[str] = None
-    invite: Optional[bool] = None
+    password: str
+    name: Optional[str] = None
 
 
 class StaffUpdate(BaseModel):
