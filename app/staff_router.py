@@ -191,7 +191,7 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
     try:
         row = (
             db.execute(
-            text("SELECT * FROM staff WHERE LOWER(email)=:e LIMIT 1"),
+                text("SELECT * FROM staff WHERE LOWER(email)=:e LIMIT 1"),
                 {"e": email.lower()},
             )
             .mappings()
@@ -199,10 +199,29 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
         )
         if not row:
             raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
-        # Validate password and status
+        # Validate password and status. If staff.password_hash is missing in schema, fall back to admins table.
         pwd_hash = row.get("password_hash") if hasattr(row, "get") else row["password_hash"] if "password_hash" in row else None
         status_val = (row.get("status") if hasattr(row, "get") else (row["status"] if "status" in row else None)) or "active"
-        if not pwd_hash or not verify_password(password, pwd_hash) or status_val != "active":
+
+        ok = False
+        if pwd_hash:
+            ok = verify_password(password, pwd_hash)
+        else:
+            # Prefer linked admin via admin_id if available, else fallback by email
+            from sqlalchemy.orm import load_only as _load_only
+            admin = None
+            try:
+                admin_id = row.get("admin_id") if hasattr(row, "get") else (row["admin_id"] if "admin_id" in row else None)
+            except Exception:
+                admin_id = None
+            q = db.query(models.Admin).options(_load_only(models.Admin.id, models.Admin.email, models.Admin.password_hash, models.Admin.is_active))
+            if admin_id:
+                admin = q.filter(models.Admin.id == int(admin_id)).first()
+            if not admin:
+                admin = q.filter(func.lower(models.Admin.email) == email.lower()).first()
+            if admin and getattr(admin, "is_active", True) and verify_password(password, admin.password_hash):
+                ok = True
+        if not ok or status_val != "active":
             raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
 
         # Prepare minimal object-like for token/response
@@ -250,7 +269,24 @@ def get_current_staff(token: str = Depends(oauth2_scheme), db: Session = Depends
     if not sub or not str(sub).startswith("staff:"):
         raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
     staff_id = int(str(sub).split(":",1)[1])
-    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    # load only safe columns to avoid selecting non-existent ones (like password_hash)
+    s = (
+        db.query(models.Staff)
+        .options(load_only(
+            models.Staff.id,
+            models.Staff.name,
+            models.Staff.email,
+            models.Staff.role_id,
+            models.Staff.role_key,
+            models.Staff.department,
+            models.Staff.phone,
+            models.Staff.status,
+            models.Staff.avatar_url,
+            models.Staff.created_at,
+        ))
+        .filter_by(id=staff_id)
+        .first()
+    )
     if not s or s.status != "active":
         raise HTTPException(status_code=401, detail="المستخدم غير متاح")
     return s
@@ -275,7 +311,12 @@ def staff_me(current_staff: models.Staff = Depends(get_current_staff)):
 @router.post("/staff/{staff_id}/set-password")
 async def staff_set_password(staff_id: int, request: Request, password: Optional[str] = Form(default=None), db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
     # only admins with update permission can set staff password
-    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    s = (
+        db.query(models.Staff)
+        .options(load_only(models.Staff.id))
+        .filter_by(id=staff_id)
+        .first()
+    )
     if not s:
         raise HTTPException(status_code=404, detail="غير موجود")
     perms = _collect_permissions(db, s, current_admin)
@@ -292,8 +333,12 @@ async def staff_set_password(staff_id: int, request: Request, password: Optional
             pwd = None
     if not pwd:
         raise HTTPException(status_code=400, detail="password مطلوب")
-    s.password_hash = get_password_hash(pwd)
-    db.add(s)
+    # ensure column exists in DB before setting
+    cols = _staff_available_columns(db)
+    if "password_hash" not in cols:
+        raise HTTPException(status_code=400, detail="إعداد كلمة المرور غير مدعوم في هذا الإصدار من قاعدة البيانات")
+    # safe direct update to avoid selecting non-existent columns
+    db.execute(text("UPDATE staff SET password_hash=:ph WHERE id=:id"), {"ph": get_password_hash(pwd), "id": staff_id})
     db.commit()
     return {"message": "ok"}
 
@@ -310,7 +355,18 @@ def list_staff(
     perms = _collect_permissions(db, None, current_admin)
     _require_perm(perms, "staff.read")
 
-    q = db.query(models.Staff)
+    q = db.query(models.Staff).options(load_only(
+        models.Staff.id,
+        models.Staff.name,
+        models.Staff.email,
+        models.Staff.role_id,
+        models.Staff.role_key,
+        models.Staff.department,
+        models.Staff.phone,
+        models.Staff.status,
+        models.Staff.avatar_url,
+        models.Staff.created_at,
+    ))
     if search:
         s = f"%{search.strip().lower()}%"
         q = q.filter(func.lower(models.Staff.name).like(s) | func.lower(models.Staff.email).like(s))
@@ -354,8 +410,74 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
         raise HTTPException(status_code=400, detail="يجب إرسال email و password (واسم اختياري)")
 
     try:
-        # email uniqueness (if table exists; otherwise this will raise and we fallback)
-        exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == payload.email.lower()).first()
+        # Fast path: if staff table does NOT have password_hash, provision linked Admin and insert staff without password
+        available_cols = _staff_available_columns(db)
+        if "password_hash" not in available_cols:
+            # Ensure admin exists (or create one) for this staff email
+            from sqlalchemy.orm import load_only as _load_only
+            admin = (
+                db.query(models.Admin)
+                .options(_load_only(models.Admin.id, models.Admin.email, models.Admin.is_active))
+                .filter(func.lower(models.Admin.email) == payload.email.lower())
+                .first()
+            )
+            if not admin:
+                admin = models.Admin(
+                    name=(payload.name or payload.email.split("@")[0]),
+                    email=payload.email.lower(),
+                    password_hash=get_password_hash(payload.password),
+                    is_active=True,
+                    is_superuser=False,
+                )
+                db.add(admin)
+                db.commit()
+                db.refresh(admin)
+            # Insert staff via dynamic SQL using only available columns
+            now = datetime.utcnow()
+            base_values = {
+                "admin_id": getattr(admin, "id", None),
+                "name": (payload.name or payload.email.split("@")[0]),
+                "email": payload.email.lower(),
+                "role_id": None,
+                "role_key": "staff",
+                "department": None,
+                "phone": None,
+                "status": "active",
+                "avatar_url": None,
+                "created_at": now,
+            }
+            use_keys = [k for k in base_values.keys() if k in available_cols]
+            if not use_keys:
+                raise RuntimeError("staff table not found or has no usable columns")
+            columns_csv = ", ".join(use_keys)
+            placeholders = ", ".join(f":{k}" for k in use_keys)
+            sql = f"INSERT INTO staff ({columns_csv}) VALUES ({placeholders})"
+            params = {k: base_values[k] for k in use_keys}
+            db.execute(text(sql), params)
+            db.commit()
+            # fetch id only
+            id_row = db.execute(text("SELECT id FROM staff WHERE LOWER(email)=:e ORDER BY id DESC LIMIT 1"), {"e": payload.email.lower()}).first()
+            new_id = id_row[0] if id_row else None
+            return schemas.StaffItem(
+                id=int(new_id) if new_id is not None else 0,
+                name=(payload.name or payload.email.split("@")[0]),
+                email=payload.email.lower(),
+                role="staff",
+                role_id=None,
+                department=None,
+                phone=None,
+                status="active",
+                avatar_url=None,
+                created_at=now,
+            )
+
+        # email uniqueness (avoid selecting non-existent columns)
+        exists = (
+            db.query(models.Staff)
+            .options(load_only(models.Staff.id, models.Staff.email))
+            .filter(func.lower(models.Staff.email) == payload.email.lower())
+            .first()
+        )
         if exists:
             raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
 
@@ -480,7 +602,23 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
 def get_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
     perms = _collect_permissions(db, None, current_admin)
     _require_perm(perms, "staff.read")
-    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    s = (
+        db.query(models.Staff)
+        .options(load_only(
+            models.Staff.id,
+            models.Staff.name,
+            models.Staff.email,
+            models.Staff.role_id,
+            models.Staff.role_key,
+            models.Staff.department,
+            models.Staff.phone,
+            models.Staff.status,
+            models.Staff.avatar_url,
+            models.Staff.created_at,
+        ))
+        .filter_by(id=staff_id)
+        .first()
+    )
     if not s:
         raise HTTPException(status_code=404, detail="غير موجود")
     return schemas.StaffItem(
@@ -499,7 +637,23 @@ def get_staff(staff_id: int, db: Session = Depends(get_db), current_admin: model
 
 @router.patch("/staff/{staff_id}", response_model=schemas.StaffItem)
 async def update_staff(staff_id: int, request: Request, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    s = (
+        db.query(models.Staff)
+        .options(load_only(
+            models.Staff.id,
+            models.Staff.name,
+            models.Staff.email,
+            models.Staff.role_id,
+            models.Staff.role_key,
+            models.Staff.department,
+            models.Staff.phone,
+            models.Staff.status,
+            models.Staff.avatar_url,
+            models.Staff.created_at,
+        ))
+        .filter_by(id=staff_id)
+        .first()
+    )
     if not s:
         raise HTTPException(status_code=404, detail="غير موجود")
     perms = _collect_permissions(db, s, current_admin)
@@ -528,7 +682,12 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
 
     try:
         if payload.email and payload.email.lower() != s.email.lower():
-            exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == payload.email.lower(), models.Staff.id != s.id).first()
+            exists = (
+                db.query(models.Staff)
+                .options(load_only(models.Staff.id, models.Staff.email))
+                .filter(func.lower(models.Staff.email) == payload.email.lower(), models.Staff.id != s.id)
+                .first()
+            )
             if exists:
                 raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
             s.email = payload.email.lower()
@@ -590,7 +749,12 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
 
 @router.delete("/staff/{staff_id}")
 def delete_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    s = (
+        db.query(models.Staff)
+        .options(load_only(models.Staff.id, models.Staff.role_id))
+        .filter_by(id=staff_id)
+        .first()
+    )
     if not s:
         raise HTTPException(status_code=404, detail="غير موجود")
     perms = _collect_permissions(db, s, current_admin)
@@ -599,7 +763,8 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db), current_admin: mo
     try:
         # Remove dependent rows to avoid FK errors if cascade is not set
         db.query(models.StaffPermission).filter_by(staff_id=s.id).delete()
-        db.delete(s)
+        # Use direct delete to avoid ORM selecting missing columns
+        db.execute(text("DELETE FROM staff WHERE id=:id"), {"id": s.id})
         db.commit()
         return {"message": "deleted"}
     except Exception as e:
