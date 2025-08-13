@@ -236,9 +236,9 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
-        msg = "database_error"
+        msg = "Internal Server Error"
         if debug:
-            msg = f"database_error | login: {e}"
+            msg = f"Internal Server Error | login: {e}"
         return Response(content=msg, status_code=500, headers={"Content-Type": "text/plain"})
 
 
@@ -473,9 +473,9 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
             print("[ERROR] staff dynamic insert failed:", e2)
             # Return plain text 500 with exact Content-Type (no charset) to satisfy client expectations
             debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
-            msg = "database_error"
+            msg = "Internal Server Error"
             if debug:
-                msg = f"database_error | orm: {e} | dynamic: {e2}"
+                msg = f"Internal Server Error | orm: {e} | dynamic: {e2}"
             return Response(content=msg, status_code=500, headers={"Content-Type": "text/plain"})
 
 
@@ -582,9 +582,9 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
     except Exception as e:
         db.rollback()
         debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
-        msg = "database_error"
+        msg = "Internal Server Error"
         if debug:
-            msg = f"database_error | update: {e}"
+            msg = f"Internal Server Error | update: {e}"
         return Response(content=msg, status_code=500, headers={"Content-Type": "text/plain"})
 
 
@@ -608,9 +608,9 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db), current_admin: mo
     except Exception as e:
         db.rollback()
         debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
-        msg = "database_error"
+        msg = "Internal Server Error"
         if debug:
-            msg = f"database_error | delete: {e}"
+            msg = f"Internal Server Error | delete: {e}"
         return Response(content=msg, status_code=500, headers={"Content-Type": "text/plain"})
 
 
