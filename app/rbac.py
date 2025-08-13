@@ -31,7 +31,6 @@ DEFAULT_ROLES: Dict[str, Dict] = {
             "staff.read",
             "staff.create",
             "staff.update",
-            "staff.delete",
             "staff.invite",
         ],
     },
