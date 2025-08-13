@@ -722,7 +722,6 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
 
         db.add(s)
         db.commit()
-        db.refresh(s)
         return schemas.StaffItem(
             id=s.id,
             name=s.name,
@@ -778,25 +777,35 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db), current_admin: mo
 
 @router.post("/staff/{staff_id}/activate")
 def activate_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    # Fetch minimal fields for permission check
+    s = (
+        db.query(models.Staff)
+        .options(load_only(models.Staff.id, models.Staff.role_id))
+        .filter_by(id=staff_id)
+        .first()
+    )
     if not s:
         raise HTTPException(status_code=404, detail="غير موجود")
     perms = _collect_permissions(db, s, current_admin)
     _require_perm(perms, "staff.activate")
-    s.status = "active"
-    db.add(s)
+    # Direct update to avoid selecting missing columns
+    db.execute(text("UPDATE staff SET status='active' WHERE id=:id"), {"id": staff_id})
     db.commit()
     return {"message": "ok"}
 
 
 @router.post("/staff/{staff_id}/deactivate")
 def deactivate_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    s = db.query(models.Staff).filter_by(id=staff_id).first()
+    s = (
+        db.query(models.Staff)
+        .options(load_only(models.Staff.id, models.Staff.role_id))
+        .filter_by(id=staff_id)
+        .first()
+    )
     if not s:
         raise HTTPException(status_code=404, detail="غير موجود")
     perms = _collect_permissions(db, s, current_admin)
     _require_perm(perms, "staff.activate")
-    s.status = "inactive"
-    db.add(s)
+    db.execute(text("UPDATE staff SET status='inactive' WHERE id=:id"), {"id": staff_id})
     db.commit()
     return {"message": "ok"}
