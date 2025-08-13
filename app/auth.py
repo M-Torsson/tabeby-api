@@ -371,15 +371,56 @@ def logout(current_admin: models.Admin = Depends(get_current_admin), token: str 
 
 
 @router.post("/change-password")
-def change_password(payload: schemas.ChangePasswordRequest, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    # تحقق من كلمة المرور الحالية
-    if not verify_password(payload.current_password, current_admin.password_hash):
-        raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
-    # حدّث كلمة المرور
-    current_admin.password_hash = get_password_hash(payload.new_password)
-    db.add(current_admin)
-    db.commit()
-    return {"message": "تم تغيير كلمة المرور"}
+def change_password(payload: schemas.ChangePasswordRequest, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    """تغيير كلمة المرور للأدمن أو الموظف بحسب نوع الرمز."""
+    try:
+        data = decode_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="رمز الوصول غير صالح")
+    t = data.get("type")
+    if t == "access":
+        # أدمن
+        admin_id = data.get("sub")
+        if not admin_id:
+            raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
+        admin = db.query(models.Admin).filter_by(id=int(admin_id)).first()
+        if not admin or not getattr(admin, "is_active", True):
+            raise HTTPException(status_code=401, detail="المستخدم غير متاح")
+        if not verify_password(payload.current_password, admin.password_hash):
+            raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
+        admin.password_hash = get_password_hash(payload.new_password)
+        db.add(admin)
+        db.commit()
+        return {"message": "تم تغيير كلمة المرور"}
+    elif t == "staff":
+        # موظف
+        sub = data.get("sub")
+        if not sub or not str(sub).startswith("staff:"):
+            raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
+        staff_id = int(str(sub).split(":", 1)[1])
+        # تأكد من دعم عمود كلمة المرور
+        try:
+            cols = db.execute(text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name='staff' AND table_schema='public'
+            """)).fetchall()
+            if not any((c[0] if isinstance(c, (list, tuple)) else c) == 'password_hash' for c in cols):
+                raise HTTPException(status_code=400, detail="إعداد كلمة المرور غير مدعوم في هذا الإصدار من قاعدة البيانات")
+        except HTTPException:
+            raise
+        except Exception:
+            # حاول الاستعلام مباشرة؛ إن فشل نعيد خطأ عام
+            pass
+        row = db.execute(text("SELECT password_hash FROM staff WHERE id=:id"), {"id": staff_id}).first()
+        if not row or not row[0]:
+            raise HTTPException(status_code=400, detail="لا توجد كلمة مرور حالية محددة")
+        if not verify_password(payload.current_password, row[0]):
+            raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
+        db.execute(text("UPDATE staff SET password_hash=:ph WHERE id=:id"), {"ph": get_password_hash(payload.new_password), "id": staff_id})
+        db.commit()
+        return {"message": "تم تغيير كلمة المرور"}
+    else:
+        raise HTTPException(status_code=401, detail="نوع الرمز غير صحيح")
 
 
 @router.post("/refresh")
