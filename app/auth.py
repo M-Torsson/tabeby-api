@@ -66,16 +66,72 @@ def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = Depends
 
 
 @router.get("/me", response_model=schemas.AdminOut)
-def auth_me(current_admin: models.Admin = Depends(get_current_admin)):
-    # إعادة تحميل خفيفة لحماية ضد مخطط ناقص
-    return schemas.AdminOut.model_validate({
-        "id": current_admin.id,
-        "name": current_admin.name,
-        "email": current_admin.email,
-        "is_active": getattr(current_admin, "is_active", True),
-        "is_superuser": getattr(current_admin, "is_superuser", False),
-        "two_factor_enabled": False,
-    })
+def auth_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    """يعيد معلومات المستخدم لكلاً من الأدمن والموظف لمنع تسجيل الخروج عند التحديث."""
+    from .rbac import all_permissions, default_roles
+    try:
+        data = decode_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="رمز الوصول غير صالح")
+    t = data.get("type")
+    if t == "access":
+        sub = data.get("sub")
+        if not sub:
+            raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
+        admin = db.query(models.Admin).filter_by(id=int(sub)).first()
+        if not admin or not getattr(admin, "is_active", True):
+            raise HTTPException(status_code=401, detail="المستخدم غير متاح")
+        if getattr(admin, "is_superuser", False):
+            role_key = "super-admin"
+            perms = all_permissions()
+        else:
+            role_key = "admin"
+            perms = default_roles().get("admin", {}).get("permissions", [])
+        return schemas.AdminOut(
+            id=admin.id,
+            name=admin.name,
+            email=admin.email,
+            is_active=getattr(admin, "is_active", True),
+            is_superuser=getattr(admin, "is_superuser", False),
+            two_factor_enabled=False,
+            is_admin=True,
+            is_staff=False,
+            role=role_key,
+            permissions=perms,
+        )
+    elif t == "staff":
+        sub = data.get("sub")
+        if not sub or not str(sub).startswith("staff:"):
+            raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
+        staff_id = int(str(sub).split(":", 1)[1])
+        from sqlalchemy.orm import load_only
+        s = (
+            db.query(models.Staff)
+            .options(load_only(models.Staff.id, models.Staff.name, models.Staff.email, models.Staff.role_key, models.Staff.role_id, models.Staff.status))
+            .filter_by(id=staff_id)
+            .first()
+        )
+        if not s or (s.status or "active") != "active":
+            raise HTTPException(status_code=401, detail="المستخدم غير متاح")
+        # اجمع صلاحيات الدور الافتراضي لعرضها (اختياري)
+        try:
+            perms = default_roles().get(s.role_key or "staff", {}).get("permissions", [])
+        except Exception:
+            perms = []
+        return schemas.AdminOut(
+            id=s.id,
+            name=s.name,
+            email=s.email,
+            is_active=True,
+            is_superuser=False,
+            two_factor_enabled=False,
+            is_admin=False,
+            is_staff=True,
+            role=s.role_key or "staff",
+            permissions=perms,
+        )
+    else:
+        raise HTTPException(status_code=401, detail="نوع الرمز غير صحيح")
 
 
 @router.post("/admin/register", response_model=schemas.AdminOut, status_code=201)

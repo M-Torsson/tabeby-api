@@ -303,6 +303,31 @@ async def staff_set_password(staff_id: int, request: Request, password: Optional
     return {"message": "ok"}
 
 
+@router.post("/staff/me/change-password")
+async def staff_change_password(payload: schemas.ChangePasswordRequest, current_staff: models.Staff = Depends(get_current_staff), db: Session = Depends(get_db)):
+    """تغيير كلمة مرور الموظف نفسه دون الحاجة لصلاحيات إدارية."""
+    # تأكد من دعم عمود كلمة المرور
+    cols = _staff_available_columns(db)
+    if "password_hash" not in cols:
+        raise HTTPException(status_code=400, detail="إعداد كلمة المرور غير مدعوم في هذا الإصدار من قاعدة البيانات")
+    # اجلب الهاش الحالي بشكل مباشر لتفادي تحميل أعمدة غير موجودة
+    row = (
+        db.execute(
+            text("SELECT password_hash FROM staff WHERE id=:id"),
+            {"id": current_staff.id},
+        )
+        .first()
+    )
+    if not row or not row[0]:
+        raise HTTPException(status_code=400, detail="لا توجد كلمة مرور حالية محددة")
+    if not verify_password(payload.current_password, row[0]):
+        raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
+    # حدّث الهاش
+    db.execute(text("UPDATE staff SET password_hash=:ph WHERE id=:id"), {"ph": get_password_hash(payload.new_password), "id": current_staff.id})
+    db.commit()
+    return {"message": "تم تغيير كلمة المرور"}
+
+
 @router.get("/staff", response_model=schemas.StaffListResponse)
 def list_staff(
     search: Optional[str] = None,

@@ -173,8 +173,22 @@ def get_security(current_admin: models.Admin = Depends(get_current_admin)):
 
 # ===== Sessions =====
 @router.get("/me/sessions", response_model=list[schemas.SessionOut])
-def list_sessions(current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+def list_sessions(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    """لأدمن: يعيد الجلسات النشطة. لموظف: يعيد قائمة فارغة لتجنّب 401 عند التحديث."""
+    try:
+        payload = decode_token(token)
+    except Exception:
+        # في الحالات الغير متوقعة، لا نرمي 401 هنا لتجنّب تسجيل الخروج القسري
+        return []
+    t = payload.get("type")
+    if t == "staff":
+        return []
+    if t != "access":
+        return []
     from sqlalchemy.orm import load_only
+    admin_id = payload.get("sub")
+    if not admin_id:
+        return []
     sessions = db.query(models.RefreshToken)
     sessions = sessions.options(
         load_only(
@@ -185,21 +199,12 @@ def list_sessions(current_admin: models.Admin = Depends(get_current_admin), db: 
             models.RefreshToken.revoked,
             models.RefreshToken.created_at,
         )
-    ).filter_by(admin_id=current_admin.id, revoked=False)
+    ).filter_by(admin_id=int(admin_id), revoked=False)
     sessions = sessions.order_by(models.RefreshToken.created_at.desc()).all()
-    # حدد current بمطابقة sid من رمز الوصول مع jti لرمز التحديث
-    sid = None
-    try:
-        payload = decode_token(token)
-        sid = payload.get("sid")
-    except Exception:
-        sid = None
+    sid = payload.get("sid")
     out = []
     for s in sessions:
-        out.append({
-            "id": s.id,
-            "current": True if sid and sid == s.jti else False,
-        })
+        out.append({"id": s.id, "current": True if sid and sid == s.jti else False})
     return out
 
 
