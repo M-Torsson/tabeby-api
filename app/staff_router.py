@@ -164,6 +164,64 @@ def _require_perm(perms: List[str], needed: str):
 # ===== Staff auth (separate from admins) =====
 
 
+def _resolve_actor_and_perms(token: str, db: Session) -> tuple[Optional[models.Admin], Optional[models.Staff], List[str]]:
+    """حلّل الرمز وأعد (أدمن، موظف، صلاحيات).
+    - أدمن: اجلب صلاحياته الافتراضية (غير السوبر = admin defaults، السوبر = كل الصلاحيات)
+    - موظف: اجمع صلاحيات الدور (role_id أو role_key) + الصلاحيات المباشرة + صلاحيات الدور الافتراضي من rbac
+    """
+    try:
+        payload = decode_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="رمز الوصول غير صالح")
+    t = payload.get("type")
+    if t == "access":
+        admin = (
+            db.query(models.Admin)
+            .options(load_only(models.Admin.id, models.Admin.is_active, models.Admin.is_superuser))
+            .filter_by(id=int(payload.get("sub")))
+            .first()
+        )
+        if not admin or not getattr(admin, "is_active", True):
+            raise HTTPException(status_code=401, detail="غير مصرح")
+        if getattr(admin, "is_superuser", False):
+            return admin, None, all_permissions()
+        from .rbac import default_roles as _defaults
+        perms = _defaults().get("admin", {}).get("permissions", [])
+        return admin, None, perms
+    if t == "staff":
+        sub = payload.get("sub")
+        if not sub or not str(sub).startswith("staff:"):
+            raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
+        staff_id = int(str(sub).split(":", 1)[1])
+        s = (
+            db.query(models.Staff)
+            .options(load_only(models.Staff.id, models.Staff.role_id, models.Staff.role_key, models.Staff.status))
+            .filter_by(id=staff_id)
+            .first()
+        )
+        if not s or (s.status or "active") != "active":
+            raise HTTPException(status_code=401, detail="غير مصرح")
+        perms_set: set[str] = set()
+        if s.role_id:
+            rps = db.query(models.RolePermission).filter_by(role_id=s.role_id).all()
+            perms_set.update(p.permission for p in rps)
+        else:
+            role_key_val = getattr(s, "role_key", None) or "staff"
+            role = db.query(models.Role).filter_by(key=role_key_val).first()
+            if role:
+                rps = db.query(models.RolePermission).filter_by(role_id=role.id).all()
+                perms_set.update(p.permission for p in rps)
+        dps = db.query(models.StaffPermission).filter_by(staff_id=s.id).all()
+        perms_set.update(p.permission for p in dps)
+        try:
+            from .rbac import default_roles as _defaults
+            perms_set.update(_defaults().get(getattr(s, "role_key", None) or "staff", {}).get("permissions", []))
+        except Exception:
+            pass
+        return None, s, sorted(perms_set)
+    raise HTTPException(status_code=401, detail="نوع الرمز غير صحيح")
+
+
 @router.post("/staff/login")
 async def staff_login(request: Request, db: Session = Depends(get_db)):
     _ensure_staff_table(db)
@@ -334,10 +392,10 @@ def list_staff(
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_admin: models.Admin = Depends(get_current_admin),
+    token: str = Depends(oauth2_scheme),
 ):
     _ensure_seed(db)
-    perms = _collect_permissions(db, None, current_admin)
+    _, _, perms = _resolve_actor_and_perms(token, db)
     _require_perm(perms, "staff.read")
 
     avail = _staff_available_columns(db)
@@ -634,8 +692,8 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
 
 
 @router.get("/staff/{staff_id}", response_model=schemas.StaffItem)
-def get_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    perms = _collect_permissions(db, None, current_admin)
+def get_staff(staff_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    _, _, perms = _resolve_actor_and_perms(token, db)
     _require_perm(perms, "staff.read")
     avail = _staff_available_columns(db)
     load_cols = [models.Staff.id, models.Staff.name, models.Staff.email]
@@ -669,7 +727,7 @@ def get_staff(staff_id: int, db: Session = Depends(get_db), current_admin: model
 
 
 @router.patch("/staff/{staff_id}", response_model=schemas.StaffItem)
-async def update_staff(staff_id: int, request: Request, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+async def update_staff(staff_id: int, request: Request, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     avail = _staff_available_columns(db)
     load_cols = [models.Staff.id, models.Staff.name, models.Staff.email]
     if "role_id" in avail: load_cols.append(models.Staff.role_id)
@@ -687,7 +745,7 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
     )
     if not s:
         raise HTTPException(status_code=404, detail="غير موجود")
-    perms = _collect_permissions(db, s, current_admin)
+    _, _, perms = _resolve_actor_and_perms(token, db)
     _require_perm(perms, "staff.update")
 
     # Accept JSON or form-data

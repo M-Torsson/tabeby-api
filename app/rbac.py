@@ -32,14 +32,19 @@ DEFAULT_ROLES: Dict[str, Dict] = {
             "staff.create",
             "staff.update",
             "staff.invite",
+            "staff.activate",
         ],
     },
     "staff": {
         "name": "Staff",
         "description": "General staff",
         "permissions": [
+            # نفس صلاحيات الأدمن تماماً (باستثناء حذف الموظفين الذي أبقيناه خارجاً)
             "staff.read",
             "staff.create",
+            "staff.update",
+            "staff.invite",
+            "staff.activate",
         ],
     },
     "receptionist": {
