@@ -64,6 +64,25 @@ DEFAULT_ROLES: Dict[str, Dict] = {
             "appointments.read",
         ],
     },
+    "doctor": {
+        "name": "Doctor",
+        "description": "Medical doctor",
+        "permissions": [
+            "staff.read",
+            "appointments.read",
+            "appointments.update",
+        ],
+    },
+    "manager": {
+        "name": "Manager",
+        "description": "Manage staff and schedules",
+        "permissions": [
+            "staff.read",
+            "staff.create",
+            "staff.update",
+            "staff.activate",
+        ],
+    },
 }
 
 

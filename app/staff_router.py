@@ -526,21 +526,59 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
         if exists:
             raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
 
+        # حدد role_id المطلوب إن أرسله العميل: يدعم role_id أو role/systemRole (بالاسم أو المفتاح، غير حساس لحالة الأحرف)
+        desired_role_id = None
+        try:
+            role_id_raw = (data.get("role_id") if isinstance(data, dict) else None)
+            role_key_or_name = None
+            for k in ("role", "systemRole", "roleKey"):
+                v = (data.get(k) if isinstance(data, dict) else None)
+                if v:
+                    role_key_or_name = str(v)
+                    break
+            if role_id_raw not in (None, ""):
+                try:
+                    desired_role_id = int(role_id_raw)
+                except Exception:
+                    desired_role_id = None
+            if desired_role_id is None and role_key_or_name:
+                from sqlalchemy import or_, func
+                rv = role_key_or_name.strip()
+                r = (
+                    db.query(models.Role)
+                    .filter(or_(func.lower(models.Role.key) == rv.lower(), func.lower(models.Role.name) == rv.lower()))
+                    .first()
+                )
+                if r:
+                    desired_role_id = r.id
+        except Exception:
+            desired_role_id = None
+
         # إدخال عبر ORM عندما يكون العمود متاحاً
         try:
             # حدد role_id الافتراضي لدور "staff" إن وُجد
             role_id_val = None
+            role_key_val = "staff"
             try:
+                # إن لم يرسل العميل اختياراً محدداً، استخدم staff
                 role_obj = db.query(models.Role).filter_by(key="staff").first()
                 if role_obj:
                     role_id_val = role_obj.id
+                    role_key_val = role_obj.key
             except Exception:
                 role_id_val = None
+                role_key_val = "staff"
+            if desired_role_id is not None:
+                # اجلب الدور المختار لتعيين role_key بدقة
+                r = db.query(models.Role).filter_by(id=desired_role_id).first()
+                if r:
+                    role_id_val = r.id
+                    role_key_val = r.key
             staff = models.Staff(
                 name=(payload.name or payload.email.split("@")[0]),
                 email=payload.email.lower(),
                 role_id=role_id_val,
-                role_key="staff",
+                role_key=role_key_val,
                 department=None,
                 phone=None,
                 status="active",
@@ -565,12 +603,21 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
             # إدراج ديناميكي إن فشل ORM
             db.rollback()
             now = datetime.utcnow()
+            # احسب role_key الفعلي للديناميكي أيضًا
+            dyn_role_key = "staff"
+            if desired_role_id is not None:
+                rr = db.query(models.Role).filter_by(id=desired_role_id).first()
+                if rr:
+                    dyn_role_key = rr.key
+            elif db.query(models.Role).filter_by(key="staff").first():
+                dyn_role_key = db.query(models.Role).filter_by(key="staff").first().key
+
             base_values = {
                 "name": (payload.name or payload.email.split("@")[0]),
                 "email": payload.email.lower(),
                 # حاول تعيين role_id إن أمكن
-                "role_id": (db.query(models.Role).filter_by(key="staff").first().id if db.query(models.Role).filter_by(key="staff").first() else None),
-                "role_key": "staff",
+                "role_id": (desired_role_id if desired_role_id is not None else (db.query(models.Role).filter_by(key="staff").first().id if db.query(models.Role).filter_by(key="staff").first() else None)),
+                "role_key": dyn_role_key,
                 "department": None,
                 "phone": None,
                 "status": "active",
@@ -790,12 +837,23 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
             s.status = payload.status
         if payload.avatar_url is not None:
             s.avatar_url = payload.avatar_url
-        if payload.role_id is not None or payload.role is not None:
+        # دعم role_id أو role/systemRole كسلسلة (key أو name)
+        if payload.role_id is not None or payload.role is not None or (isinstance(data, dict) and (data.get("systemRole") is not None)):
             role = None
             if payload.role_id is not None:
                 role = db.query(models.Role).filter_by(id=payload.role_id).first()
-            elif payload.role is not None:
-                role = db.query(models.Role).filter_by(key=payload.role).first()
+            else:
+                role_key_or_name = payload.role
+                if role_key_or_name is None and isinstance(data, dict):
+                    role_key_or_name = data.get("systemRole")
+                if role_key_or_name is not None:
+                    from sqlalchemy import or_, func
+                    rv = str(role_key_or_name).strip()
+                    role = (
+                        db.query(models.Role)
+                        .filter(or_(func.lower(models.Role.key) == rv.lower(), func.lower(models.Role.name) == rv.lower()))
+                        .first()
+                    )
             if not role:
                 raise HTTPException(status_code=400, detail="الدور غير موجود")
             s.role_id = role.id
