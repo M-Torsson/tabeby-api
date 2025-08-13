@@ -167,7 +167,11 @@ def _require_perm(perms: List[str], needed: str):
 @router.post("/staff/login")
 async def staff_login(request: Request, db: Session = Depends(get_db)):
     _ensure_staff_table(db)
-    # Accept JSON or form-data explicitly for broader client compatibility
+    # يجب وجود عمود password_hash لدعم تسجيل دخول الموظف
+    if "password_hash" not in _staff_available_columns(db):
+        raise HTTPException(status_code=500, detail="إعداد قاعدة البيانات ناقص: عمود password_hash غير موجود في staff")
+
+    # قبول JSON أو form
     email = None
     password = None
     try:
@@ -182,80 +186,38 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
             email = (form.get("email") or "").strip()
             password = form.get("password")
     except Exception:
-        # fall back to 400 below if parsing fails
         pass
-
     if not email or not password:
         raise HTTPException(status_code=400, detail="يجب إرسال البريد وكلمة المرور")
 
-    try:
-        row = (
-            db.execute(
-                text("SELECT * FROM staff WHERE LOWER(email)=:e LIMIT 1"),
-                {"e": email.lower()},
-            )
-            .mappings()
-            .first()
+    # جلب الموظف والتأكد من الحالة وكلمة المرور
+    row = (
+        db.execute(
+            text("SELECT id, name, email, role_key, status, password_hash FROM staff WHERE LOWER(email)=:e LIMIT 1"),
+            {"e": email.lower()},
         )
-        if not row:
-            raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
-        # Validate password and status. If staff.password_hash is missing in schema, fall back to admins table.
-        pwd_hash = row.get("password_hash") if hasattr(row, "get") else row["password_hash"] if "password_hash" in row else None
-        status_val = (row.get("status") if hasattr(row, "get") else (row["status"] if "status" in row else None)) or "active"
+        .mappings()
+        .first()
+    )
+    if not row or (row.get("status") or "active") != "active":
+        raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
+    pwd_hash = row.get("password_hash")
+    if not pwd_hash or not verify_password(password, pwd_hash):
+        raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
 
-        ok = False
-        if pwd_hash:
-            ok = verify_password(password, pwd_hash)
-        else:
-            # Prefer linked admin via admin_id if available, else fallback by email
-            from sqlalchemy.orm import load_only as _load_only
-            admin = None
-            try:
-                admin_id = row.get("admin_id") if hasattr(row, "get") else (row["admin_id"] if "admin_id" in row else None)
-            except Exception:
-                admin_id = None
-            q = db.query(models.Admin).options(_load_only(models.Admin.id, models.Admin.email, models.Admin.password_hash, models.Admin.is_active))
-            if admin_id:
-                admin = q.filter(models.Admin.id == int(admin_id)).first()
-            if not admin:
-                admin = q.filter(func.lower(models.Admin.email) == email.lower()).first()
-            if admin and getattr(admin, "is_active", True) and verify_password(password, admin.password_hash):
-                ok = True
-        if not ok or status_val != "active":
-            raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
-
-        # Prepare minimal object-like for token/response
-        class _Obj:
-            pass
-        s = _Obj()
-        s.id = int((row.get("id") if hasattr(row, "get") else row["id"])) if ("id" in row) else 0
-        s.name = (row.get("name") if hasattr(row, "get") else (row["name"] if "name" in row else None)) or email.split("@")[0]
-        s.email = (row.get("email") if hasattr(row, "get") else (row["email"] if "email" in row else None)) or email
-        s.role_key = (row.get("role_key") if hasattr(row, "get") else (row["role_key"] if "role_key" in row else None)) or "staff"
-
-        access = create_access_token(subject=f"staff:{s.id}", extra={"type": "staff"})
-        refresh = create_refresh_token(subject=f"staff:{s.id}")
-        return {
-            "data": {
-                "accessToken": access["token"],
-                "refreshToken": refresh["token"],
-                "tokenType": "bearer",
-                "user": {
-                    "id": s.id,
-                    "name": s.name,
-                    "email": s.email,
-                    "role": s.role_key,
-                },
-            }
+    token = create_access_token(subject=f"staff:{int(row.get('id'))}", extra={"type": "staff"})
+    return {
+        "data": {
+            "accessToken": token["token"],
+            "tokenType": "bearer",
+            "user": {
+                "id": int(row.get("id")),
+                "name": row.get("name") or email.split("@")[0],
+                "email": row.get("email") or email,
+                "role": row.get("role_key") or "staff",
+            },
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
-        msg = "Internal Server Error"
-        if debug:
-            msg = f"Internal Server Error | login: {e}"
-        return Response(content=msg, status_code=500, headers={"Content-Type": "text/plain"})
+    }
 
 
 def get_current_staff(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> models.Staff:
@@ -410,32 +372,53 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
         raise HTTPException(status_code=400, detail="يجب إرسال email و password (واسم اختياري)")
 
     try:
-        # Fast path: if staff table does NOT have password_hash, provision linked Admin and insert staff without password
+        # يجب توفر عمود password_hash لدعم كلمات مرور الموظفين
         available_cols = _staff_available_columns(db)
         if "password_hash" not in available_cols:
-            # Ensure admin exists (or create one) for this staff email
-            from sqlalchemy.orm import load_only as _load_only
-            admin = (
-                db.query(models.Admin)
-                .options(_load_only(models.Admin.id, models.Admin.email, models.Admin.is_active))
-                .filter(func.lower(models.Admin.email) == payload.email.lower())
-                .first()
+            raise HTTPException(status_code=500, detail="إعداد قاعدة البيانات ناقص: عمود password_hash غير موجود في staff")
+
+        # email uniqueness (avoid selecting non-existent columns)
+        exists = (
+            db.query(models.Staff)
+            .options(load_only(models.Staff.id, models.Staff.email))
+            .filter(func.lower(models.Staff.email) == payload.email.lower())
+            .first()
+        )
+        if exists:
+            raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
+
+        # إدخال عبر ORM عندما يكون العمود متاحاً
+        try:
+            staff = models.Staff(
+                name=(payload.name or payload.email.split("@")[0]),
+                email=payload.email.lower(),
+                role_id=None,
+                role_key="staff",
+                department=None,
+                phone=None,
+                status="active",
+                password_hash=get_password_hash(payload.password),
             )
-            if not admin:
-                admin = models.Admin(
-                    name=(payload.name or payload.email.split("@")[0]),
-                    email=payload.email.lower(),
-                    password_hash=get_password_hash(payload.password),
-                    is_active=True,
-                    is_superuser=False,
-                )
-                db.add(admin)
-                db.commit()
-                db.refresh(admin)
-            # Insert staff via dynamic SQL using only available columns
+            db.add(staff)
+            db.commit()
+            db.refresh(staff)
+            return schemas.StaffItem(
+                id=staff.id,
+                name=staff.name,
+                email=staff.email,
+                role=staff.role_key,
+                role_id=staff.role_id,
+                department=staff.department,
+                phone=staff.phone,
+                status=staff.status,
+                avatar_url=staff.avatar_url,
+                created_at=staff.created_at,
+            )
+        except Exception:
+            # إدراج ديناميكي إن فشل ORM
+            db.rollback()
             now = datetime.utcnow()
             base_values = {
-                "admin_id": getattr(admin, "id", None),
                 "name": (payload.name or payload.email.split("@")[0]),
                 "email": payload.email.lower(),
                 "role_id": None,
@@ -444,18 +427,16 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
                 "phone": None,
                 "status": "active",
                 "avatar_url": None,
+                "password_hash": get_password_hash(payload.password),
                 "created_at": now,
             }
             use_keys = [k for k in base_values.keys() if k in available_cols]
-            if not use_keys:
-                raise RuntimeError("staff table not found or has no usable columns")
             columns_csv = ", ".join(use_keys)
             placeholders = ", ".join(f":{k}" for k in use_keys)
             sql = f"INSERT INTO staff ({columns_csv}) VALUES ({placeholders})"
             params = {k: base_values[k] for k in use_keys}
             db.execute(text(sql), params)
             db.commit()
-            # fetch id only
             id_row = db.execute(text("SELECT id FROM staff WHERE LOWER(email)=:e ORDER BY id DESC LIMIT 1"), {"e": payload.email.lower()}).first()
             new_id = id_row[0] if id_row else None
             return schemas.StaffItem(
@@ -470,42 +451,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
                 avatar_url=None,
                 created_at=now,
             )
-
-        # email uniqueness (avoid selecting non-existent columns)
-        exists = (
-            db.query(models.Staff)
-            .options(load_only(models.Staff.id, models.Staff.email))
-            .filter(func.lower(models.Staff.email) == payload.email.lower())
-            .first()
-        )
-        if exists:
-            raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
-
-        staff = models.Staff(
-            name=(payload.name or payload.email.split("@")[0]),
-            email=payload.email.lower(),
-            role_id=None,
-            role_key="staff",
-            department=None,
-            phone=None,
-            status="active",
-            password_hash=get_password_hash(payload.password),
-        )
-        db.add(staff)
-        db.commit()
-        db.refresh(staff)
-        return schemas.StaffItem(
-            id=staff.id,
-            name=staff.name,
-            email=staff.email,
-            role=staff.role_key,
-            role_id=staff.role_id,
-            department=staff.department,
-            phone=staff.phone,
-            status=staff.status,
-            avatar_url=staff.avatar_url,
-            created_at=staff.created_at,
-        )
     except Exception as e:
         # likely due to schema drift (missing columns). Try minimal/dynamic insert.
         db.rollback()
