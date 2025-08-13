@@ -231,21 +231,19 @@ def get_current_staff(token: str = Depends(oauth2_scheme), db: Session = Depends
     if not sub or not str(sub).startswith("staff:"):
         raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
     staff_id = int(str(sub).split(":",1)[1])
-    # load only safe columns to avoid selecting non-existent ones (like password_hash)
+    # load only columns that actually exist
+    avail = _staff_available_columns(db)
+    load_cols = [models.Staff.id, models.Staff.name, models.Staff.email]
+    if "role_id" in avail: load_cols.append(models.Staff.role_id)
+    if "role_key" in avail: load_cols.append(models.Staff.role_key)
+    if "department" in avail: load_cols.append(models.Staff.department)
+    if "phone" in avail: load_cols.append(models.Staff.phone)
+    if "status" in avail: load_cols.append(models.Staff.status)
+    if "avatar_url" in avail: load_cols.append(models.Staff.avatar_url)
+    if "created_at" in avail: load_cols.append(models.Staff.created_at)
     s = (
         db.query(models.Staff)
-        .options(load_only(
-            models.Staff.id,
-            models.Staff.name,
-            models.Staff.email,
-            models.Staff.role_id,
-            models.Staff.role_key,
-            models.Staff.department,
-            models.Staff.phone,
-            models.Staff.status,
-            models.Staff.avatar_url,
-            models.Staff.created_at,
-        ))
+        .options(load_only(*load_cols))
         .filter_by(id=staff_id)
         .first()
     )
@@ -266,7 +264,7 @@ def staff_me(current_staff: models.Staff = Depends(get_current_staff)):
         phone=current_staff.phone,
         status=current_staff.status,
         avatar_url=current_staff.avatar_url,
-        created_at=current_staff.created_at,
+        created_at=getattr(current_staff, "created_at", datetime.utcnow()),
     )
 
 
@@ -317,23 +315,25 @@ def list_staff(
     perms = _collect_permissions(db, None, current_admin)
     _require_perm(perms, "staff.read")
 
-    q = db.query(models.Staff).options(load_only(
-        models.Staff.id,
-        models.Staff.name,
-        models.Staff.email,
-        models.Staff.role_id,
-        models.Staff.role_key,
-        models.Staff.department,
-        models.Staff.phone,
-        models.Staff.status,
-        models.Staff.avatar_url,
-        models.Staff.created_at,
-    ))
+    avail = _staff_available_columns(db)
+    load_cols = [models.Staff.id, models.Staff.name, models.Staff.email]
+    if "role_id" in avail: load_cols.append(models.Staff.role_id)
+    if "role_key" in avail: load_cols.append(models.Staff.role_key)
+    if "department" in avail: load_cols.append(models.Staff.department)
+    if "phone" in avail: load_cols.append(models.Staff.phone)
+    if "status" in avail: load_cols.append(models.Staff.status)
+    if "avatar_url" in avail: load_cols.append(models.Staff.avatar_url)
+    if "created_at" in avail: load_cols.append(models.Staff.created_at)
+    q = db.query(models.Staff).options(load_only(*load_cols))
     if search:
         s = f"%{search.strip().lower()}%"
         q = q.filter(func.lower(models.Staff.name).like(s) | func.lower(models.Staff.email).like(s))
     total = q.count()
-    rows = q.order_by(models.Staff.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    # ترتيب مرن: created_at إن وُجد وإلا حسب id تنازلياً
+    if "created_at" in avail:
+        rows = q.order_by(models.Staff.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    else:
+        rows = q.order_by(models.Staff.id.desc()).offset((page - 1) * limit).limit(limit).all()
     items = [
         schemas.StaffItem(
             id=r.id,
@@ -345,7 +345,7 @@ def list_staff(
             phone=r.phone,
             status=r.status,
             avatar_url=r.avatar_url,
-            created_at=r.created_at,
+            created_at=getattr(r, "created_at", datetime.utcnow()),
         )
         for r in rows
     ]
@@ -612,20 +612,18 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
 def get_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
     perms = _collect_permissions(db, None, current_admin)
     _require_perm(perms, "staff.read")
+    avail = _staff_available_columns(db)
+    load_cols = [models.Staff.id, models.Staff.name, models.Staff.email]
+    if "role_id" in avail: load_cols.append(models.Staff.role_id)
+    if "role_key" in avail: load_cols.append(models.Staff.role_key)
+    if "department" in avail: load_cols.append(models.Staff.department)
+    if "phone" in avail: load_cols.append(models.Staff.phone)
+    if "status" in avail: load_cols.append(models.Staff.status)
+    if "avatar_url" in avail: load_cols.append(models.Staff.avatar_url)
+    if "created_at" in avail: load_cols.append(models.Staff.created_at)
     s = (
         db.query(models.Staff)
-        .options(load_only(
-            models.Staff.id,
-            models.Staff.name,
-            models.Staff.email,
-            models.Staff.role_id,
-            models.Staff.role_key,
-            models.Staff.department,
-            models.Staff.phone,
-            models.Staff.status,
-            models.Staff.avatar_url,
-            models.Staff.created_at,
-        ))
+        .options(load_only(*load_cols))
         .filter_by(id=staff_id)
         .first()
     )
@@ -641,26 +639,24 @@ def get_staff(staff_id: int, db: Session = Depends(get_db), current_admin: model
         phone=s.phone,
         status=s.status,
         avatar_url=s.avatar_url,
-        created_at=s.created_at,
+        created_at=getattr(s, "created_at", datetime.utcnow()),
     )
 
 
 @router.patch("/staff/{staff_id}", response_model=schemas.StaffItem)
 async def update_staff(staff_id: int, request: Request, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    avail = _staff_available_columns(db)
+    load_cols = [models.Staff.id, models.Staff.name, models.Staff.email]
+    if "role_id" in avail: load_cols.append(models.Staff.role_id)
+    if "role_key" in avail: load_cols.append(models.Staff.role_key)
+    if "department" in avail: load_cols.append(models.Staff.department)
+    if "phone" in avail: load_cols.append(models.Staff.phone)
+    if "status" in avail: load_cols.append(models.Staff.status)
+    if "avatar_url" in avail: load_cols.append(models.Staff.avatar_url)
+    if "created_at" in avail: load_cols.append(models.Staff.created_at)
     s = (
         db.query(models.Staff)
-        .options(load_only(
-            models.Staff.id,
-            models.Staff.name,
-            models.Staff.email,
-            models.Staff.role_id,
-            models.Staff.role_key,
-            models.Staff.department,
-            models.Staff.phone,
-            models.Staff.status,
-            models.Staff.avatar_url,
-            models.Staff.created_at,
-        ))
+        .options(load_only(*load_cols))
         .filter_by(id=staff_id)
         .first()
     )
@@ -742,7 +738,7 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
             phone=s.phone,
             status=s.status,
             avatar_url=s.avatar_url,
-            created_at=s.created_at,
+            created_at=getattr(s, "created_at", datetime.utcnow()),
         )
     except Exception as e:
         db.rollback()
