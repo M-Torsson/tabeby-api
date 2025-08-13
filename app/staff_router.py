@@ -139,21 +139,32 @@ def _require_perm(perms: List[str], needed: str):
 
 
 @router.post("/staff/login")
-def staff_login(
-    data: Optional[schemas.LoginRequest] = None,
-    email: Optional[str] = Form(default=None),
-    password: Optional[str] = Form(default=None),
-    db: Session = Depends(get_db),
-):
-    # Accept JSON body (LoginRequest) or form-data fields gracefully
-    if data is not None:
-        email = data.email
-        password = data.password
+async def staff_login(request: Request, db: Session = Depends(get_db)):
+    # Accept JSON or form-data explicitly for broader client compatibility
+    email = None
+    password = None
+    try:
+        content_type = (request.headers.get("content-type") or "").lower()
+        if content_type.startswith("application/json"):
+            body = await request.json()
+            if isinstance(body, dict):
+                email = (body.get("email") or "").strip()
+                password = body.get("password")
+        else:
+            form = await request.form()
+            email = (form.get("email") or "").strip()
+            password = form.get("password")
+    except Exception:
+        # fall back to 400 below if parsing fails
+        pass
+
     if not email or not password:
         raise HTTPException(status_code=400, detail="يجب إرسال البريد وكلمة المرور")
-    s = db.query(models.Staff).filter(func.lower(models.Staff.email) == email.strip().lower()).first()
+
+    s = db.query(models.Staff).filter(func.lower(models.Staff.email) == email.lower()).first()
     if not s or not s.password_hash or not verify_password(password, s.password_hash) or s.status != "active":
         raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
+
     access = create_access_token(subject=f"staff:{s.id}", extra={"type": "staff"})
     refresh = create_refresh_token(subject=f"staff:{s.id}")
     return {
