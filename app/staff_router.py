@@ -140,6 +140,7 @@ def _require_perm(perms: List[str], needed: str):
 
 @router.post("/staff/login")
 async def staff_login(request: Request, db: Session = Depends(get_db)):
+    _ensure_staff_table(db)
     # Accept JSON or form-data explicitly for broader client compatibility
     email = None
     password = None
@@ -161,25 +162,48 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
     if not email or not password:
         raise HTTPException(status_code=400, detail="يجب إرسال البريد وكلمة المرور")
 
-    s = db.query(models.Staff).filter(func.lower(models.Staff.email) == email.lower()).first()
-    if not s or not s.password_hash or not verify_password(password, s.password_hash) or s.status != "active":
-        raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
+    try:
+        s = (
+            db.query(models.Staff)
+            .options(
+                load_only(
+                    models.Staff.id,
+                    models.Staff.name,
+                    models.Staff.email,
+                    models.Staff.password_hash,
+                    models.Staff.role_key,
+                    models.Staff.status,
+                )
+            )
+            .filter(func.lower(models.Staff.email) == email.lower())
+            .first()
+        )
+        if not s or not s.password_hash or not verify_password(password, s.password_hash) or s.status != "active":
+            raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
 
-    access = create_access_token(subject=f"staff:{s.id}", extra={"type": "staff"})
-    refresh = create_refresh_token(subject=f"staff:{s.id}")
-    return {
-        "data": {
-            "accessToken": access["token"],
-            "refreshToken": refresh["token"],
-            "tokenType": "bearer",
-            "user": {
-                "id": s.id,
-                "name": s.name,
-                "email": s.email,
-                "role": s.role_key,
-            },
+        access = create_access_token(subject=f"staff:{s.id}", extra={"type": "staff"})
+        refresh = create_refresh_token(subject=f"staff:{s.id}")
+        return {
+            "data": {
+                "accessToken": access["token"],
+                "refreshToken": refresh["token"],
+                "tokenType": "bearer",
+                "user": {
+                    "id": s.id,
+                    "name": s.name,
+                    "email": s.email,
+                    "role": s.role_key,
+                },
+            }
         }
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
+        msg = "database_error"
+        if debug:
+            msg = f"database_error | login: {e}"
+        return Response(content=msg, status_code=500, headers={"Content-Type": "text/plain"})
 
 
 def get_current_staff(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> models.Staff:
@@ -441,62 +465,91 @@ def get_staff(staff_id: int, db: Session = Depends(get_db), current_admin: model
 
 
 @router.patch("/staff/{staff_id}", response_model=schemas.StaffItem)
-def update_staff(staff_id: int, payload: schemas.StaffUpdate, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+async def update_staff(staff_id: int, request: Request, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
     s = db.query(models.Staff).filter_by(id=staff_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="غير موجود")
     perms = _collect_permissions(db, s, current_admin)
     _require_perm(perms, "staff.update")
 
-    if payload.email and payload.email.lower() != s.email.lower():
-        exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == payload.email.lower(), models.Staff.id != s.id).first()
-        if exists:
-            raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
-        s.email = payload.email.lower()
-    if payload.name is not None:
-        s.name = payload.name
-    if payload.department is not None:
-        s.department = payload.department
-    if payload.phone is not None:
-        s.phone = payload.phone
-    if payload.status is not None:
-        s.status = payload.status
-    if payload.avatar_url is not None:
-        s.avatar_url = payload.avatar_url
-    if payload.role_id is not None or payload.role is not None:
-        role = None
-        if payload.role_id is not None:
-            role = db.query(models.Role).filter_by(id=payload.role_id).first()
-        elif payload.role is not None:
-            role = db.query(models.Role).filter_by(key=payload.role).first()
-        if not role:
-            raise HTTPException(status_code=400, detail="الدور غير موجود")
-        s.role_id = role.id
-        s.role_key = role.key
-    if payload.permissions is not None:
-        # replace direct permissions
-        db.query(models.StaffPermission).filter_by(staff_id=s.id).delete()
-        valid = set(all_permissions())
-        for p in payload.permissions:
-            if p not in valid:
-                raise HTTPException(status_code=400, detail=f"permission '{p}' is invalid")
-            db.add(models.StaffPermission(staff_id=s.id, permission=p))
+    # Accept JSON or form-data
+    try:
+        content_type = (request.headers.get("content-type") or "").lower()
+        if content_type.startswith("application/json"):
+            data = await request.json()
+        else:
+            form = await request.form()
+            data = dict(form)
+        # Normalize types for form-data
+        if isinstance(data, dict):
+            if "role_id" in data and isinstance(data.get("role_id"), str) and data.get("role_id").strip() != "":
+                try:
+                    data["role_id"] = int(data["role_id"])  # type: ignore
+                except Exception:
+                    pass
+            if "permissions" in data and isinstance(data.get("permissions"), str):
+                data["permissions"] = [p.strip() for p in data["permissions"].split(",") if p.strip()]
+        payload = schemas.StaffUpdate.model_validate(data)
+    except Exception:
+        raise HTTPException(status_code=400, detail="بيانات التعديل غير صحيحة")
 
-    db.add(s)
-    db.commit()
-    db.refresh(s)
-    return schemas.StaffItem(
-        id=s.id,
-        name=s.name,
-        email=s.email,
-        role=s.role_key,
-        role_id=s.role_id,
-        department=s.department,
-        phone=s.phone,
-        status=s.status,
-        avatar_url=s.avatar_url,
-        created_at=s.created_at,
-    )
+    try:
+        if payload.email and payload.email.lower() != s.email.lower():
+            exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == payload.email.lower(), models.Staff.id != s.id).first()
+            if exists:
+                raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
+            s.email = payload.email.lower()
+        if payload.name is not None:
+            s.name = payload.name
+        if payload.department is not None:
+            s.department = payload.department
+        if payload.phone is not None:
+            s.phone = payload.phone
+        if payload.status is not None:
+            s.status = payload.status
+        if payload.avatar_url is not None:
+            s.avatar_url = payload.avatar_url
+        if payload.role_id is not None or payload.role is not None:
+            role = None
+            if payload.role_id is not None:
+                role = db.query(models.Role).filter_by(id=payload.role_id).first()
+            elif payload.role is not None:
+                role = db.query(models.Role).filter_by(key=payload.role).first()
+            if not role:
+                raise HTTPException(status_code=400, detail="الدور غير موجود")
+            s.role_id = role.id
+            s.role_key = role.key
+        if payload.permissions is not None:
+            # replace direct permissions
+            db.query(models.StaffPermission).filter_by(staff_id=s.id).delete()
+            valid = set(all_permissions())
+            for p in payload.permissions:
+                if p not in valid:
+                    raise HTTPException(status_code=400, detail=f"permission '{p}' is invalid")
+                db.add(models.StaffPermission(staff_id=s.id, permission=p))
+
+        db.add(s)
+        db.commit()
+        db.refresh(s)
+        return schemas.StaffItem(
+            id=s.id,
+            name=s.name,
+            email=s.email,
+            role=s.role_key,
+            role_id=s.role_id,
+            department=s.department,
+            phone=s.phone,
+            status=s.status,
+            avatar_url=s.avatar_url,
+            created_at=s.created_at,
+        )
+    except Exception as e:
+        db.rollback()
+        debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
+        msg = "database_error"
+        if debug:
+            msg = f"database_error | update: {e}"
+        return Response(content=msg, status_code=500, headers={"Content-Type": "text/plain"})
 
 
 # تمت إزالة نقطة provision لعدم خلط الموظفين مع حسابات الأدمن
@@ -510,9 +563,17 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db), current_admin: mo
     perms = _collect_permissions(db, s, current_admin)
     _require_perm(perms, "staff.delete")
 
-    db.delete(s)
-    db.commit()
-    return {"message": "deleted"}
+    try:
+        db.delete(s)
+        db.commit()
+        return {"message": "deleted"}
+    except Exception as e:
+        db.rollback()
+        debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
+        msg = "database_error"
+        if debug:
+            msg = f"database_error | delete: {e}"
+        return Response(content=msg, status_code=500, headers={"Content-Type": "text/plain"})
 
 
 @router.post("/staff/{staff_id}/activate")
