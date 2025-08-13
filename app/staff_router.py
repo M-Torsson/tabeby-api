@@ -328,6 +328,28 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
             cols = [(r[0], (r[1] or '').upper(), r[2]) for r in cols_res]
             available = {c for c, _, _ in cols}
             must_have = {c for c, nul, d in cols if nul == 'NO' and d is None}
+            # If table seems missing (no columns), try to create tables then re-read
+            if not available:
+                try:
+                    from .database import Base as _Base
+                    bind = db.get_bind()
+                    if bind is not None:
+                        _Base.metadata.create_all(bind=bind)
+                    # re-fetch columns
+                    cols_res = db.execute(
+                        text(
+                            """
+                            SELECT column_name, is_nullable, column_default
+                            FROM information_schema.columns
+                            WHERE table_name = 'staff' AND table_schema = 'public'
+                            """
+                        )
+                    )
+                    cols = [(r[0], (r[1] or '').upper(), r[2]) for r in cols_res]
+                    available = {c for c, _, _ in cols}
+                    must_have = {c for c, nul, d in cols if nul == 'NO' and d is None}
+                except Exception:
+                    pass
             now = datetime.utcnow()
             base_values = {
                 "admin_id": None,
@@ -347,6 +369,8 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
             missing_required = [k for k in must_have if (k not in use_keys or base_values.get(k) is None) and k not in {"id"}]
             if missing_required:
                 raise RuntimeError(f"staff missing required cols without defaults: {missing_required}")
+            if not use_keys:
+                raise RuntimeError("staff table not found or has no usable columns")
             columns_csv = ", ".join(use_keys)
             placeholders = ", ".join(f":{k}" for k in use_keys)
             sql = f"INSERT INTO staff ({columns_csv}) VALUES ({placeholders})"
