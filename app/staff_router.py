@@ -1,4 +1,5 @@
 from typing import Optional, List
+import os
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Form, Request
 from sqlalchemy.orm import Session, load_only
 from sqlalchemy import func, text
@@ -48,6 +49,22 @@ def _ensure_seed(db: Session):
         for p in meta.get("permissions", []):
             db.add(models.RolePermission(role_id=role.id, permission=p))
     db.commit()
+
+
+def _ensure_staff_table(db: Session):
+    try:
+        # quick probe to see if table exists
+        db.execute(text("SELECT 1 FROM staff LIMIT 1"))
+        return
+    except Exception:
+        try:
+            from .database import Base as _Base
+            bind = db.get_bind()
+            if bind is not None:
+                _Base.metadata.create_all(bind=bind)
+        except Exception:
+            # ignore; will be handled in dynamic insert fallback
+            pass
 
 
 @router.get("/users/me", response_model=schemas.AdminOut)
@@ -251,6 +268,7 @@ def list_staff(
 
 @router.post("/staff", response_model=schemas.StaffItem, status_code=201)
 async def create_staff(request: Request, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+    _ensure_staff_table(db)
     perms = _collect_permissions(db, None, current_admin)
     _require_perm(perms, "staff.create")
 
@@ -381,6 +399,8 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
             db.rollback()
             print("[ERROR] staff insert failed:", e)
             print("[ERROR] staff dynamic insert failed:", e2)
+            if (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}:
+                raise HTTPException(status_code=500, detail={"code": "database_error", "orm_error": str(e), "dynamic_error": str(e2)})
             raise HTTPException(status_code=500, detail="database_error")
 
 
