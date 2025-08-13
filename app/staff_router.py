@@ -1,7 +1,8 @@
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Form, Request
 from sqlalchemy.orm import Session, load_only
-from sqlalchemy import func
+from sqlalchemy import func, text
+from datetime import datetime
 
 from .auth import get_current_admin, get_db, oauth2_scheme
 from .security import create_access_token, create_refresh_token, verify_password, get_password_hash, decode_token
@@ -295,22 +296,83 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
     # If password provided on creation, store its hash (optional)
     if payload.password:
         staff.password_hash = get_password_hash(payload.password)
-    db.add(staff)
-    db.commit()
-    db.refresh(staff)
-
-    return schemas.StaffItem(
-        id=staff.id,
-        name=staff.name,
-        email=staff.email,
-        role=staff.role_key,
-        role_id=staff.role_id,
-        department=staff.department,
-        phone=staff.phone,
-        status=staff.status,
-        avatar_url=staff.avatar_url,
-        created_at=staff.created_at,
-    )
+    try:
+        db.add(staff)
+        db.commit()
+        db.refresh(staff)
+        return schemas.StaffItem(
+            id=staff.id,
+            name=staff.name,
+            email=staff.email,
+            role=staff.role_key,
+            role_id=staff.role_id,
+            department=staff.department,
+            phone=staff.phone,
+            status=staff.status,
+            avatar_url=staff.avatar_url,
+            created_at=staff.created_at,
+        )
+    except Exception as e:
+        # likely due to schema drift (missing columns). Try minimal/dynamic insert.
+        db.rollback()
+        try:
+            cols_res = db.execute(
+                text(
+                    """
+                    SELECT column_name, is_nullable, column_default
+                    FROM information_schema.columns
+                    WHERE table_name = 'staff' AND table_schema = 'public'
+                    """
+                )
+            )
+            cols = [(r[0], (r[1] or '').upper(), r[2]) for r in cols_res]
+            available = {c for c, _, _ in cols}
+            must_have = {c for c, nul, d in cols if nul == 'NO' and d is None}
+            now = datetime.utcnow()
+            base_values = {
+                "admin_id": None,
+                "name": payload.name,
+                "email": payload.email.lower(),
+                "role_id": (role.id if role else None),
+                "role_key": (role.key if role else (payload.role or "staff")),
+                "department": payload.department,
+                "phone": payload.phone,
+                "status": (payload.status or "active"),
+                "avatar_url": None,
+                "password_hash": (get_password_hash(payload.password) if payload.password else None),
+                "created_at": now,
+            }
+            use_keys = [k for k in base_values.keys() if k in available]
+            # ensure required columns are covered with non-null values
+            missing_required = [k for k in must_have if (k not in use_keys or base_values.get(k) is None) and k not in {"id"}]
+            if missing_required:
+                raise RuntimeError(f"staff missing required cols without defaults: {missing_required}")
+            columns_csv = ", ".join(use_keys)
+            placeholders = ", ".join(f":{k}" for k in use_keys)
+            sql = f"INSERT INTO staff ({columns_csv}) VALUES ({placeholders})"
+            params = {k: base_values[k] for k in use_keys}
+            db.execute(text(sql), params)
+            db.commit()
+            # fetch id only to build response safely without selecting missing columns
+            id_row = db.execute(text("SELECT id FROM staff WHERE LOWER(email)=:e ORDER BY id DESC LIMIT 1"), {"e": payload.email.lower()}).first()
+            new_id = id_row[0] if id_row else None
+            return schemas.StaffItem(
+                id=int(new_id) if new_id is not None else 0,
+                name=payload.name,
+                email=payload.email.lower(),
+                role=(role.key if role else (payload.role or "staff")),
+                role_id=(role.id if role else None),
+                department=payload.department,
+                phone=payload.phone,
+                status=(payload.status or "active"),
+                avatar_url=None,
+                created_at=now,
+            )
+        except Exception as e2:
+            db.rollback()
+            print("[ERROR] staff insert failed:", e)
+            print("[ERROR] staff dynamic insert failed:", e2)
+            raise HTTPException(status_code=500, detail="database_error")
 
 
 @router.get("/staff/{staff_id}", response_model=schemas.StaffItem)
