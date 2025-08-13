@@ -1,6 +1,6 @@
 from typing import Optional, List
 import os
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Form, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Form, Request, Response
 from sqlalchemy.orm import Session, load_only
 from sqlalchemy import func, text
 from datetime import datetime
@@ -285,21 +285,22 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
     except Exception as e_val:
         raise HTTPException(status_code=400, detail="يجب إرسال email و password (واسم اختياري)")
 
-    exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == payload.email.lower()).first()
-    if exists:
-        raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
-
-    staff = models.Staff(
-        name=(payload.name or payload.email.split("@")[0]),
-        email=payload.email.lower(),
-        role_id=None,
-        role_key="staff",
-        department=None,
-        phone=None,
-        status="active",
-        password_hash=get_password_hash(payload.password),
-    )
     try:
+        # email uniqueness (if table exists; otherwise this will raise and we fallback)
+        exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == payload.email.lower()).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
+
+        staff = models.Staff(
+            name=(payload.name or payload.email.split("@")[0]),
+            email=payload.email.lower(),
+            role_id=None,
+            role_key="staff",
+            department=None,
+            phone=None,
+            status="active",
+            password_hash=get_password_hash(payload.password),
+        )
         db.add(staff)
         db.commit()
         db.refresh(staff)
@@ -399,9 +400,12 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
             db.rollback()
             print("[ERROR] staff insert failed:", e)
             print("[ERROR] staff dynamic insert failed:", e2)
-            if (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}:
-                raise HTTPException(status_code=500, detail={"code": "database_error", "orm_error": str(e), "dynamic_error": str(e2)})
-            raise HTTPException(status_code=500, detail="database_error")
+            # Return plain text 500 with exact Content-Type (no charset) to satisfy client expectations
+            debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
+            msg = "database_error"
+            if debug:
+                msg = f"database_error | orm: {e} | dynamic: {e2}"
+            return Response(content=msg, status_code=500, headers={"Content-Type": "text/plain"})
 
 
 @router.get("/staff/{staff_id}", response_model=schemas.StaffItem)
