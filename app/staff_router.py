@@ -1,5 +1,5 @@
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Form, Request
 from sqlalchemy.orm import Session, load_only
 from sqlalchemy import func
 
@@ -187,14 +187,23 @@ def staff_me(current_staff: models.Staff = Depends(get_current_staff)):
 
 
 @router.post("/staff/{staff_id}/set-password")
-def staff_set_password(staff_id: int, body: dict, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+async def staff_set_password(staff_id: int, request: Request, password: Optional[str] = Form(default=None), db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
     # only admins with update permission can set staff password
     s = db.query(models.Staff).filter_by(id=staff_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="غير موجود")
     perms = _collect_permissions(db, s, current_admin)
     _require_perm(perms, "staff.update")
-    pwd = (body or {}).get("password")
+    pwd = password
+    if not pwd:
+        # try JSON
+        try:
+            content_type = (request.headers.get("content-type") or "").lower()
+            if content_type.startswith("application/json"):
+                data = await request.json()
+                pwd = (data or {}).get("password")
+        except Exception:
+            pwd = None
     if not pwd:
         raise HTTPException(status_code=400, detail="password مطلوب")
     s.password_hash = get_password_hash(pwd)
@@ -240,10 +249,23 @@ def list_staff(
 
 
 @router.post("/staff", response_model=schemas.StaffItem, status_code=201)
-def create_staff(payload: schemas.StaffCreate, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+async def create_staff(request: Request, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
     _ensure_seed(db)
     perms = _collect_permissions(db, None, current_admin)
     _require_perm(perms, "staff.create")
+
+    # Accept JSON or form
+    content_type = (request.headers.get("content-type") or "").lower()
+    if content_type.startswith("application/json"):
+        data = await request.json()
+    else:
+        form = await request.form()
+        data = dict(form)
+
+    try:
+        payload = schemas.StaffCreate.model_validate(data)
+    except Exception:
+        raise HTTPException(status_code=400, detail="بيانات غير صالحة، تأكد من الحقول المطلوبة")
 
     exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == (payload.email or "").lower()).first()
     if exists:
@@ -268,7 +290,7 @@ def create_staff(payload: schemas.StaffCreate, db: Session = Depends(get_db), cu
         role_key=(role.key if role else (payload.role or "staff")),
         department=payload.department,
         phone=payload.phone,
-        status=payload.status or "active",
+        status=(payload.status or "active"),
     )
     # If password provided on creation, store its hash (optional)
     if payload.password:
