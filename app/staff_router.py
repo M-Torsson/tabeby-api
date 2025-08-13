@@ -17,6 +17,14 @@ def _collect_permissions(db: Session, staff: Optional[models.Staff], admin: mode
         return all_permissions()
 
     perms: set[str] = set()
+    # Admins (non super) get default admin role permissions
+    try:
+        from .rbac import default_roles as _defaults
+        perms.update(_defaults().get("admin", {}).get("permissions", []))
+    except Exception:
+        pass
+
+    # If a staff context is provided, merge role and direct staff permissions
     if staff and staff.role_id:
         role_perms = db.query(models.RolePermission).options(load_only(models.RolePermission.permission)).filter_by(role_id=staff.role_id).all()
         perms.update(p.permission for p in role_perms)
