@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from .auth import get_current_admin, get_db, oauth2_scheme
 from .security import decode_token
 from . import models, schemas
+from .rbac import all_permissions, default_roles
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -25,8 +26,96 @@ def _require_pyotp():
 
 
 @router.get("/me", response_model=schemas.AdminOut)
-def get_me(current_admin: models.Admin = Depends(get_current_admin)):
-    return schemas.AdminOut.model_validate(current_admin, from_attributes=True)
+def get_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    """
+    نقطة موحّدة تُعيد معلومات المستخدم سواء كان أدمن أو موظف.
+    - إذا كان رمز JWT من نوع access (أدمن) => تُعيد بيانات الأدمن.
+    - إذا كان من نوع staff => تُعيد بيانات الموظف بصيغة AdminOut (مع is_staff=True).
+    هذا يمنع تسجيل الخروج الفوري عندما يستدعي الفرونت /users/me برمز موظف.
+    """
+    try:
+        data = decode_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="رمز الوصول غير صالح")
+
+    t = data.get("type")
+    if t == "access":
+        # تحقق من القائمة السوداء وحالة الأدمن
+        jti = data.get("jti")
+        sub = data.get("sub")
+        if not sub:
+            raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
+        if jti:
+            bl = db.query(models.BlacklistedToken).filter_by(jti=jti).first()
+            if bl:
+                raise HTTPException(status_code=401, detail="تم تسجيل الخروج")
+        admin = db.query(models.Admin).filter_by(id=int(sub)).first()
+        if not admin or not getattr(admin, "is_active", True):
+            raise HTTPException(status_code=401, detail="المستخدم غير متاح")
+        # اشتق الدور والصلاحيات الافتراضية للأدمن
+        if getattr(admin, "is_superuser", False):
+            role_key = "super-admin"
+            perms = all_permissions()
+        else:
+            role_key = "admin"
+            perms = default_roles().get("admin", {}).get("permissions", [])
+        return schemas.AdminOut(
+            id=admin.id,
+            name=admin.name,
+            email=admin.email,
+            is_active=getattr(admin, "is_active", True),
+            is_superuser=getattr(admin, "is_superuser", False),
+            two_factor_enabled=False,
+            is_admin=True,
+            is_staff=False,
+            role=role_key,
+            permissions=perms,
+        )
+
+    if t == "staff":
+        sub = data.get("sub")
+        if not sub or not str(sub).startswith("staff:"):
+            raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
+        staff_id = int(str(sub).split(":", 1)[1])
+        # حمّل أعمدة آمنة فقط
+        from sqlalchemy.orm import load_only
+        s = (
+            db.query(models.Staff)
+            .options(load_only(
+                models.Staff.id,
+                models.Staff.name,
+                models.Staff.email,
+                models.Staff.role_id,
+                models.Staff.role_key,
+                models.Staff.status,
+            ))
+            .filter_by(id=staff_id)
+            .first()
+        )
+        if not s or (s.status or "active") != "active":
+            raise HTTPException(status_code=401, detail="المستخدم غير متاح")
+        # اجمع صلاحيات الدور + صلاحيات مباشرة للموظف
+        perms: set[str] = set()
+        if s.role_id:
+            rps = db.query(models.RolePermission).filter_by(role_id=s.role_id).all()
+            perms.update(p.permission for p in rps)
+        dps = db.query(models.StaffPermission).filter_by(staff_id=s.id).all()
+        perms.update(p.permission for p in dps)
+        return schemas.AdminOut(
+            id=s.id,
+            name=s.name,
+            email=s.email,
+            is_active=True,
+            is_superuser=False,
+            two_factor_enabled=False,
+            is_admin=False,
+            is_staff=True,
+            role=s.role_key or "staff",
+            permissions=sorted(perms),
+        )
+
+    # نوع غير متوقع
+    raise HTTPException(status_code=401, detail="نوع الرمز غير صحيح")
 
 
 @router.patch("/me", response_model=schemas.AdminOut)

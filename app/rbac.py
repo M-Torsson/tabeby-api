@@ -39,6 +39,7 @@ DEFAULT_ROLES: Dict[str, Dict] = {
         "description": "General staff",
         "permissions": [
             "staff.read",
+            "staff.create",
         ],
     },
     "receptionist": {

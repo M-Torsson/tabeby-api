@@ -353,9 +353,65 @@ def list_staff(
 
 
 @router.post("/staff", response_model=schemas.StaffItem, status_code=201)
-async def create_staff(request: Request, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
+async def create_staff(request: Request, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     _ensure_staff_table(db)
-    perms = _collect_permissions(db, None, current_admin)
+    _ensure_seed(db)  # تأكد من وجود الأدوار الافتراضية
+    # استخرج نوع الهوية: أدمن أو موظف
+    actor_admin: Optional[models.Admin] = None
+    actor_staff: Optional[models.Staff] = None
+    perms: List[str] = []
+    try:
+        payload = decode_token(token)
+        t = payload.get("type")
+        if t == "access":
+            actor_admin = db.query(models.Admin).options(load_only(models.Admin.id, models.Admin.is_active, models.Admin.is_superuser)).filter_by(id=int(payload.get("sub"))).first()
+            if not actor_admin or not getattr(actor_admin, "is_active", True):
+                raise HTTPException(status_code=401, detail="غير مصرح")
+            perms = _collect_permissions(db, None, actor_admin)
+        elif t == "staff":
+            sub = payload.get("sub")
+            if not sub or not str(sub).startswith("staff:"):
+                raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
+            staff_id = int(str(sub).split(":", 1)[1])
+            actor_staff = (
+                db.query(models.Staff)
+                .options(load_only(models.Staff.id, models.Staff.role_id, models.Staff.role_key, models.Staff.status))
+                .filter_by(id=staff_id)
+                .first()
+            )
+            if not actor_staff or (actor_staff.status or "active") != "active":
+                raise HTTPException(status_code=401, detail="غير مصرح")
+            # صلاحيات الموظف = دور + صلاحيات مباشرة
+            perms_set = set()
+            # من role_id إن وجد
+            if actor_staff.role_id:
+                rps = db.query(models.RolePermission).filter_by(role_id=actor_staff.role_id).all()
+                perms_set.update(p.permission for p in rps)
+            else:
+                # وإلا من role_key كحل بديل (حيث قد لا نحدد role_id في سجلات قديمة)
+                if hasattr(models, 'Role'):
+                    role_key_val = getattr(actor_staff, 'role_key', None) or 'staff'
+                    role = db.query(models.Role).filter_by(key=role_key_val).first()
+                    if role:
+                        rps = db.query(models.RolePermission).filter_by(role_id=role.id).all()
+                        perms_set.update(p.permission for p in rps)
+            dps = db.query(models.StaffPermission).filter_by(staff_id=actor_staff.id).all()
+            perms_set.update(p.permission for p in dps)
+            # دمج صلاحيات الدور الافتراضي حسب role_key كحل متوافق للأدوار القديمة
+            try:
+                from .rbac import default_roles as _defaults
+                rk = getattr(actor_staff, 'role_key', None) or 'staff'
+                perms_set.update(_defaults().get(rk, {}).get('permissions', []))
+            except Exception:
+                pass
+            perms = sorted(perms_set)
+        else:
+            raise HTTPException(status_code=401, detail="نوع الرمز غير صحيح")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="رمز الوصول غير صالح")
+
     _require_perm(perms, "staff.create")
 
     # Accept JSON or form
@@ -389,10 +445,18 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
 
         # إدخال عبر ORM عندما يكون العمود متاحاً
         try:
+            # حدد role_id الافتراضي لدور "staff" إن وُجد
+            role_id_val = None
+            try:
+                role_obj = db.query(models.Role).filter_by(key="staff").first()
+                if role_obj:
+                    role_id_val = role_obj.id
+            except Exception:
+                role_id_val = None
             staff = models.Staff(
                 name=(payload.name or payload.email.split("@")[0]),
                 email=payload.email.lower(),
-                role_id=None,
+                role_id=role_id_val,
                 role_key="staff",
                 department=None,
                 phone=None,
@@ -421,7 +485,8 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
             base_values = {
                 "name": (payload.name or payload.email.split("@")[0]),
                 "email": payload.email.lower(),
-                "role_id": None,
+                # حاول تعيين role_id إن أمكن
+                "role_id": (db.query(models.Role).filter_by(key="staff").first().id if db.query(models.Role).filter_by(key="staff").first() else None),
                 "role_key": "staff",
                 "department": None,
                 "phone": None,
