@@ -251,7 +251,6 @@ def list_staff(
 
 @router.post("/staff", response_model=schemas.StaffItem, status_code=201)
 async def create_staff(request: Request, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    _ensure_seed(db)
     perms = _collect_permissions(db, None, current_admin)
     _require_perm(perms, "staff.create")
 
@@ -265,7 +264,7 @@ async def create_staff(request: Request, db: Session = Depends(get_db), current_
 
     try:
         payload = schemas.StaffCreate.model_validate(data)
-    except Exception:
+    except Exception as e_val:
         raise HTTPException(status_code=400, detail="يجب إرسال email و password (واسم اختياري)")
 
     exists = db.query(models.Staff).filter(func.lower(models.Staff.email) == payload.email.lower()).first()
