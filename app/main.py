@@ -36,8 +36,7 @@ allow_origin_regex = os.getenv(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allow_origins,
-    allow_origin_regex=allow_origin_regex,
+    allow_origins=["*"],  # يسمح لجميع الدومينات مؤقتاً لحل مشكلة CORS
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
