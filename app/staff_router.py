@@ -1,3 +1,23 @@
+@router.post("/staff/password")
+async def staff_password_change_api(payload: schemas.ChangePasswordRequest, current_staff: models.Staff = Depends(get_current_staff), db: Session = Depends(get_db)):
+    """تغيير كلمة مرور الموظف الحالي عبر /staff/password (متوافق مع الفرونت)."""
+    cols = _staff_available_columns(db)
+    if "password_hash" not in cols:
+        raise HTTPException(status_code=400, detail="إعداد كلمة المرور غير مدعوم في هذا الإصدار من قاعدة البيانات")
+    row = (
+        db.execute(
+            text("SELECT password_hash FROM staff WHERE id=:id"),
+            {"id": current_staff.id},
+        )
+        .first()
+    )
+    if not row or not row[0]:
+        raise HTTPException(status_code=400, detail="لا توجد كلمة مرور حالية محددة")
+    if not verify_password(payload.current_password, row[0]):
+        raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
+    db.execute(text("UPDATE staff SET password_hash=:ph WHERE id=:id"), {"ph": get_password_hash(payload.new_password), "id": current_staff.id})
+    db.commit()
+    return {"message": "تم تغيير كلمة المرور"}
 from typing import Optional, List
 import os
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Form, Request, Response
@@ -11,6 +31,28 @@ from . import models, schemas
 from .rbac import all_permissions, default_roles
 
 router = APIRouter(tags=["Staff & RBAC"])
+
+# دعم تغيير كلمة مرور الموظف عبر /staff/password (متوافق مع الفرونت)
+@router.post("/staff/password")
+async def staff_password_change_api(payload: schemas.ChangePasswordRequest, current_staff: models.Staff = Depends(get_current_staff), db: Session = Depends(get_db)):
+    """تغيير كلمة مرور الموظف الحالي عبر /staff/password (متوافق مع الفرونت)."""
+    cols = _staff_available_columns(db)
+    if "password_hash" not in cols:
+        raise HTTPException(status_code=400, detail="إعداد كلمة المرور غير مدعوم في هذا الإصدار من قاعدة البيانات")
+    row = (
+        db.execute(
+            text("SELECT password_hash FROM staff WHERE id=:id"),
+            {"id": current_staff.id},
+        )
+        .first()
+    )
+    if not row or not row[0]:
+        raise HTTPException(status_code=400, detail="لا توجد كلمة مرور حالية محددة")
+    if not verify_password(payload.current_password, row[0]):
+        raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
+    db.execute(text("UPDATE staff SET password_hash=:ph WHERE id=:id"), {"ph": get_password_hash(payload.new_password), "id": current_staff.id})
+    db.commit()
+    return {"message": "تم تغيير كلمة المرور"}
 
 
 def _collect_permissions(db: Session, staff: Optional[models.Staff], admin: models.Admin) -> List[str]:
@@ -312,6 +354,27 @@ def get_current_staff(token: str = Depends(oauth2_scheme), db: Session = Depends
 
 @router.get("/staff/me", response_model=schemas.StaffItem)
 def staff_me(current_staff: models.Staff = Depends(get_current_staff)):
+# دعم تغيير كلمة مرور الموظف عبر /staff/password (متوافق مع الفرونت)
+@router.post("/staff/password")
+async def staff_password_change_api(payload: schemas.ChangePasswordRequest, current_staff: models.Staff = Depends(get_current_staff), db: Session = Depends(get_db)):
+    """تغيير كلمة مرور الموظف الحالي عبر /staff/password (متوافق مع الفرونت)."""
+    cols = _staff_available_columns(db)
+    if "password_hash" not in cols:
+        raise HTTPException(status_code=400, detail="إعداد كلمة المرور غير مدعوم في هذا الإصدار من قاعدة البيانات")
+    row = (
+        db.execute(
+            text("SELECT password_hash FROM staff WHERE id=:id"),
+            {"id": current_staff.id},
+        )
+        .first()
+    )
+    if not row or not row[0]:
+        raise HTTPException(status_code=400, detail="لا توجد كلمة مرور حالية محددة")
+    if not verify_password(payload.current_password, row[0]):
+        raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
+    db.execute(text("UPDATE staff SET password_hash=:ph WHERE id=:id"), {"ph": get_password_hash(payload.new_password), "id": current_staff.id})
+    db.commit()
+    return {"message": "تم تغيير كلمة المرور"}
     return schemas.StaffItem(
         id=current_staff.id,
         name=current_staff.name,
