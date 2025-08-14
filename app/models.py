@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UniqueConstraint, Index, Table
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UniqueConstraint, Index, Table, Text, DECIMAL
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -86,7 +86,7 @@ class Activity(Base):
     at = Column(DateTime, index=True, nullable=False, default=datetime.utcnow)
 
 # فهارس مفيدة
-Index("ix_activities_admin_at_desc", models.Activity.admin_id, models.Activity.at.desc()) if False else None
+Index("ix_activities_admin_at_desc", Activity.admin_id, Activity.at.desc()) if False else None
 
 # ===== RBAC: Roles, Permissions, Staff =====
 
@@ -152,3 +152,23 @@ class StaffPermission(Base):
 
     staff = relationship("Staff", back_populates="permissions")
 
+# ===== Departments =====
+
+class Department(Base):
+    __tablename__ = "departments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    head_of_department = Column(String(255), nullable=True)
+    staff_count = Column(Integer, default=0)
+    services_count = Column(Integer, default=0)
+    status = Column(String(20), default='active')
+    location = Column(String(255), nullable=True)
+    contact_email = Column(String(255), nullable=True)
+    contact_phone = Column(String(50), nullable=True)
+    working_hours = Column(String(255), nullable=True)
+    budget = Column(DECIMAL(10, 2), nullable=True)
+    manager_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -177,6 +177,7 @@ class PermissionList(BaseModel):
 
 
 class StaffItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
     email: EmailStr
@@ -221,3 +222,52 @@ class RecoveryCodeOut(BaseModel):
 class RecoveryCodesResponse(BaseModel):
     codes: List[RecoveryCodeOut]
 
+# ===== Departments =====
+
+class DepartmentCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    head_of_department: Optional[str] = None
+    location: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    status: Optional[Literal['active', 'inactive']] = 'active'
+
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    head_of_department: Optional[str] = None
+    location: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    status: Optional[Literal['active', 'inactive']] = None
+    working_hours: Optional[str] = None
+    budget: Optional[float] = None
+    manager_id: Optional[int] = None
+
+class DepartmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    description: Optional[str] = None
+    head_of_department: Optional[str] = None
+    staff_count: int = 0
+    services_count: int = 0
+    status: str
+    location: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+class DepartmentListResponse(BaseModel):
+    items: List[DepartmentOut]
+    total: int
+
+class DepartmentStats(BaseModel):
+    total_departments: int
+    active_departments: int
+    inactive_departments: int
+    total_staff: int
+    total_services: int
+    growth_rate: float

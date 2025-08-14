@@ -8,6 +8,7 @@ from .users import router as users_router
 from .admins import router as admins_router
 from .staff_router import router as staff_rbac_router
 from .activities import router as activities_router
+from .departments import router as departments_router
 from fastapi.middleware.cors import CORSMiddleware
 
 # إنشاء الجداول عند تشغيل التطبيق لأول مرة (بما في ذلك جداول RBAC الجديدة)
@@ -55,7 +56,6 @@ def get_db():
 def health():
     return {"status": "ok"}
 
-from .departments import router as departments_router
 # دمج مسارات التوثيق
 app.include_router(auth_router)
 app.include_router(users_router)
@@ -75,6 +75,7 @@ backend_router.include_router(users_router)
 backend_router.include_router(admins_router)
 backend_router.include_router(staff_rbac_router)
 backend_router.include_router(activities_router)
+backend_router.include_router(departments_router)
 
 # /backend/me  => /users/me
 def _light_admin(admin_id: int):
