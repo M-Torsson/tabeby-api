@@ -144,3 +144,35 @@ def create_patient(payload: schemas.PatientCreate, db: Session = Depends(get_db)
 @app.get("/patients", response_model=list[schemas.PatientOut])
 def list_patients(db: Session = Depends(get_db)):
     return db.query(models.Patient).all()
+
+# إضافة مسار للحصول على عدد الموظفين بدون توكن
+@app.get("/staff/count")
+def get_staff_count(db: Session = Depends(get_db)):
+    """
+    إرجاع عدد الموظفين في التطبيق بدون متطلبات توكن.
+    يجمع الأعداد من نماذج Admin و Staff و Employee إن وُجدت.
+    """
+    total = 0
+    # عد الـ Admins إن وُجد النموذج
+    if hasattr(models, "Admin"):
+        try:
+            total += db.query(models.Admin).count()
+        except Exception:
+            # تجاهل أي خطأ في العد لضمان عدم تعطل المسار
+            pass
+
+    # عد الـ Staff إن وُجد النموذج
+    if hasattr(models, "Staff"):
+        try:
+            total += db.query(models.Staff).count()
+        except Exception:
+            pass
+
+    # بعض المشاريع قد تستخدم اسم Employee أو مشابه للموظفين
+    if hasattr(models, "Employee"):
+        try:
+            total += db.query(models.Employee).count()
+        except Exception:
+            pass
+
+    return {"count": total}
