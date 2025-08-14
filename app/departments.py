@@ -5,8 +5,7 @@ from sqlalchemy import func, or_
 from typing import List, Optional
 
 from . import models, schemas
-from .database import get_db
-from .auth import get_current_admin
+from .auth import get_current_admin, get_db
 
 router = APIRouter(
     prefix="/departments",
