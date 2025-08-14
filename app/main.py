@@ -55,12 +55,14 @@ def get_db():
 def health():
     return {"status": "ok"}
 
+from .departments import router as departments_router
 # دمج مسارات التوثيق
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(admins_router)
 app.include_router(staff_rbac_router)
 app.include_router(activities_router)
+app.include_router(departments_router)
 
 # راوتر توافق لطلبـات قديمة تبدأ بـ /backend (مخفى عن الوثائق)
 from .auth import get_current_admin
