@@ -58,35 +58,22 @@ def health():
 
 # إضافة مسار للحصول على عدد الموظفين بدون توكن (يجب تسجيله قبل راوتر /staff)
 @app.get("/staff/count")
-def get_staff_count(db: Session = Depends(get_db)):
+def get_staff_count(active_only: bool = False, db: Session = Depends(get_db)):
     """
-    إرجاع عدد الموظفين في التطبيق بدون متطلبات توكن.
-    يجمع الأعداد من نماذج Admin و Staff و Employee إن وُجدت.
+    إرجاع عدد الموظفين من جدول Staff فقط (بدون توكن).
+    - يمكن تمرير active_only=true لحصر العد على الحالة "active" فقط.
     """
-    total = 0
-    # عد الـ Admins إن وُجد النموذج
-    if hasattr(models, "Admin"):
-        try:
-            total += db.query(models.Admin).count()
-        except Exception:
-            # تجاهل أي خطأ في العد لضمان عدم تعطل المسار
-            pass
-
-    # عد الـ Staff إن وُجد النموذج
-    if hasattr(models, "Staff"):
-        try:
-            total += db.query(models.Staff).count()
-        except Exception:
-            pass
-
-    # بعض المشاريع قد تستخدم اسم Employee أو مشابه للموظفين
-    if hasattr(models, "Employee"):
-        try:
-            total += db.query(models.Employee).count()
-        except Exception:
-            pass
-
-    return {"count": total}
+    if not hasattr(models, "Staff"):
+        return {"count": 0}
+    try:
+        q = db.query(models.Staff)
+        # إن وُجد عمود status وطلب المستخدم حصر العد على النشطين فقط
+        if active_only and hasattr(models.Staff, "status"):
+            q = q.filter(getattr(models.Staff, "status") == "active")
+        return {"count": q.count()}
+    except Exception:
+        # في حال وجود مشكلة في ORM، أعد 0 بدل الانهيار
+        return {"count": 0}
 
 # دمج مسارات التوثيق
 app.include_router(auth_router)
