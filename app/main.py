@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, Depends, HTTPException, APIRouter
+from fastapi import FastAPI, Depends, HTTPException, APIRouter, Request, Response
 from sqlalchemy.orm import Session
 from .database import Base, engine, SessionLocal
 from . import models, schemas
@@ -163,5 +163,67 @@ def create_patient(payload: schemas.PatientCreate, db: Session = Depends(get_db)
 @app.get("/patients", response_model=list[schemas.PatientOut])
 def list_patients(db: Session = Depends(get_db)):
     return db.query(models.Patient).all()
+
+# نعيد محتوى ملف JSON كما هو تماماً بدون أي تعديل
+RAW_DOCTOR_PROFILE_JSON = r"""{
+    "general_info" : {
+        "create_date" : "٢٠٢٥-٠٨-٢٤ ٠٣:٠٧ م",
+        "profile_image_URL" : "http:\/\/",
+        "about_doctor_bio" : "أنا ما أعرف كيف أتعامل معاه و أنا من وجهة نظره ما أعرف كيف أتصرف معاه بس أنا مب عارفه كيف أتصرف مع الناس ",
+        "doctor_phone_number" : "07701234569",
+        "gender" : "رجل",
+        "clinic_states" : "كركوك",
+        "doctor_name" : "عمر حازم",
+        "email_address" : "Fgfftg@gmail.com",
+        "experience_years" : "٥",
+        "accountStatus" : false,
+        "examination_fees" : "٢٠٠٠٠",
+        "number_patients_treated" : "٨٠٠٠",
+        "license_number" : "١١٥٢٤٥",
+        "clinic_name" : "عيادة معلش يا جميل",
+        "clinic_address" : "ما هي احتياطات استخدام زيت الزيتون في علاج التهاب المفاصل ",
+        "receiving_patients" : "٢٠"
+    },
+    "clinck_days" : {
+        "to" : "الجمعة",
+        "from" : "السبت"
+    },
+    "specializations" : [
+        "نسائية وتوليد \/ رعاية حوامل",
+        "الغدد الصماء",
+        "طب الأسنان"
+    ],
+    "clinic_phone_number" : {
+        "phone_3" : "",
+        "phone_1" : "٠٧٧٠١٢٣٥٧٨٦٥",
+        "phone_2" : "٠٧٨٠١٢٢٥٤٧٨٨"
+    },
+    "clinic_location" : {
+        "latitude" : "30.058236133217274",
+        "place_name" : "12588, الشيخ زايد, مصر",
+        "longitude" : "30.963241597456566"
+    },
+    "certifications" : [
+        "MSc",
+        "BSN",
+        "DO"
+    ],
+    "clinck_hours" : {
+        "to" : "10:00 مساءا",
+        "from" : "1:00 مساءا"
+    },
+    "clinic_waiting_time" : {
+        "value" : "من ٢٥ الى ٣٠ دقيقة"
+    }
+}"""
+
+@app.get("/doctor/profile.json")
+def get_doctor_profile_raw():
+        return Response(content=RAW_DOCTOR_PROFILE_JSON, media_type="application/json")
+    
+@app.post("/doctor/profile.json")
+async def post_doctor_profile_raw(request: Request):
+    body = await request.body()
+    return Response(content=body, media_type="application/json")
 
 # انتهى
