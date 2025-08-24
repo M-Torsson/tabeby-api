@@ -183,3 +183,22 @@ class DoctorProfile(Base):
     raw_json = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# ===== Doctors (denormalized + raw profile_json) =====
+
+class Doctor(Base):
+    __tablename__ = "doctors"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False, index=True)
+    email = Column(String, nullable=True, index=True)
+    phone = Column(String, nullable=True, index=True)
+    image_url = Column(String, nullable=True)
+    specialty = Column(String, nullable=True, index=True)
+    clinic_state = Column(String, nullable=True, index=True)
+    status = Column(String, nullable=False, default="active", index=True)
+    experience_years = Column(Integer, nullable=True)
+    patients_count = Column(Integer, nullable=True)
+    profile_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
