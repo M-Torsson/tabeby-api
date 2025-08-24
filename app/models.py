@@ -172,3 +172,14 @@ class Department(Base):
     manager_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# ===== Doctor Profile (raw JSON persisted) =====
+
+class DoctorProfile(Base):
+    __tablename__ = "doctor_profiles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    slug = Column(String(100), unique=True, nullable=False, default="default")
+    raw_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

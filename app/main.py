@@ -219,11 +219,34 @@ RAW_DOCTOR_PROFILE_JSON = r"""{
 
 @app.get("/doctor/profile.json")
 def get_doctor_profile_raw():
-        return Response(content=RAW_DOCTOR_PROFILE_JSON, media_type="application/json")
+    # اقرأ من قاعدة البيانات؛ إذا لم توجد سجلات، أنشئ الافتراضي
+    db = SessionLocal()
+    try:
+        row = db.query(models.DoctorProfile).filter_by(slug="default").first()
+        if not row:
+            row = models.DoctorProfile(slug="default", raw_json=RAW_DOCTOR_PROFILE_JSON)
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+        return Response(content=row.raw_json, media_type="application/json")
+    finally:
+        db.close()
     
 @app.post("/doctor/profile.json")
 async def post_doctor_profile_raw(request: Request):
     body = await request.body()
-    return Response(content=body, media_type="application/json")
+    # خزّن النص الخام كما هو في قاعدة البيانات
+    db = SessionLocal()
+    try:
+        row = db.query(models.DoctorProfile).filter_by(slug="default").first()
+        if not row:
+            row = models.DoctorProfile(slug="default", raw_json=body.decode("utf-8", errors="replace"))
+            db.add(row)
+        else:
+            row.raw_json = body.decode("utf-8", errors="replace")
+        db.commit()
+        return Response(content=body, media_type="application/json")
+    finally:
+        db.close()
 
 # انتهى
