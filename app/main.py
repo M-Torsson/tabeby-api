@@ -11,9 +11,17 @@ from .activities import router as activities_router
 from .departments import router as departments_router
 from .doctors import router as doctors_router
 from fastapi.middleware.cors import CORSMiddleware
+from .firebase_init import ensure_firebase_initialized
 
 # إنشاء الجداول عند تشغيل التطبيق لأول مرة (بما في ذلك جداول RBAC الجديدة)
 Base.metadata.create_all(bind=engine)
+
+# Initialize Firebase before routers
+try:
+    ensure_firebase_initialized()
+except Exception as _e:
+    # Don't crash app startup in dev if env var is missing; raise only when endpoint is called
+    pass
 
 app = FastAPI(title="Tabeby API")
 
@@ -56,6 +64,19 @@ def get_db():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+# Firebase quick check route
+@app.get("/_firebase_check")
+def firebase_check():
+    # Ensure initialization here if not already initialized
+    ensure_firebase_initialized()
+    try:
+        from firebase_admin import auth as firebase_auth  # type: ignore
+    except Exception:
+        raise HTTPException(status_code=500, detail="firebase_admin package not available")
+    page = firebase_auth.list_users(page_size=1)
+    sample_uid = page.users[0].uid if getattr(page, 'users', []) else None
+    return {"ok": True, "sample_uid": sample_uid}
 
 # إضافة مسار للحصول على عدد الموظفين بدون توكن (يجب تسجيله قبل راوتر /staff)
 @app.get("/staff/count")
