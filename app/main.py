@@ -69,14 +69,18 @@ def health():
 @app.get("/_firebase_check")
 def firebase_check():
     # Ensure initialization here if not already initialized
-    ensure_firebase_initialized()
+    try:
+        ensure_firebase_initialized()
+    except Exception as e:
+        # Return safe error (no secrets) to help diagnose
+        return {"ok": False, "error": str(e)}
     try:
         from firebase_admin import auth as firebase_auth  # type: ignore
-    except Exception:
-        raise HTTPException(status_code=500, detail="firebase_admin package not available")
-    page = firebase_auth.list_users(page_size=1)
-    sample_uid = page.users[0].uid if getattr(page, 'users', []) else None
-    return {"ok": True, "sample_uid": sample_uid}
+        page = firebase_auth.list_users(page_size=1)
+        sample_uid = page.users[0].uid if getattr(page, 'users', []) else None
+        return {"ok": True, "sample_uid": sample_uid}
+    except Exception as e:
+        return {"ok": False, "error": f"auth access failed: {e}"}
 
 # إضافة مسار للحصول على عدد الموظفين بدون توكن (يجب تسجيله قبل راوتر /staff)
 @app.get("/staff/count")
