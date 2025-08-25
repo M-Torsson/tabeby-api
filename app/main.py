@@ -76,8 +76,16 @@ def firebase_check():
         return {"ok": False, "error": str(e)}
     try:
         from firebase_admin import auth as firebase_auth  # type: ignore
-        page = firebase_auth.list_users(page_size=1)
-        sample_uid = page.users[0].uid if getattr(page, 'users', []) else None
+        # Python Admin SDK uses max_results/page_token or iterate_all()
+        sample_uid = None
+        try:
+            for u in firebase_auth.list_users().iterate_all():
+                sample_uid = u.uid
+                break
+        except Exception:
+            # Fallback minimal call
+            page = firebase_auth.list_users()
+            sample_uid = page.users[0].uid if getattr(page, 'users', []) else None
         return {"ok": True, "sample_uid": sample_uid}
     except Exception as e:
         return {"ok": False, "error": f"auth access failed: {e}"}
