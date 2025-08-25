@@ -220,6 +220,7 @@ RAW_DOCTOR_PROFILE_JSON = r"""{
     }
 }"""
 
+@app.get("/doctor/profile")
 @app.get("/doctor/profile.json")
 def get_doctor_profile_raw():
     # اقرأ من قاعدة البيانات؛ إذا لم توجد سجلات، أنشئ الافتراضي
@@ -235,6 +236,7 @@ def get_doctor_profile_raw():
     finally:
         db.close()
     
+@app.post("/doctor/profile")
 @app.post("/doctor/profile.json")
 async def post_doctor_profile_raw(request: Request):
     body = await request.body()
