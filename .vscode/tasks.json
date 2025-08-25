@@ -10,6 +10,17 @@
 				"'PY'",
 				"\nfrom fastapi.testclient import TestClient\nfrom app.main import app\nimport uuid\n\nclient = TestClient(app)\n\nprint('HEALTH', client.get('/health').status_code)\n\nemail = f'test-{uuid.uuid4().hex[:6]}@tabeby.app'\npassword = 'Passw0rd!'\nprint('REGISTER', email)\nr = client.post('/auth/admin/register', json={'name':'Tester','email':email,'password':password})\nprint('REGISTER status', r.status_code)\nprint('REGISTER json', r.json())\n\nr2 = client.post('/auth/login', json={'email':email,'password':password})\nprint('LOGIN status', r2.status_code)\nprint('LOGIN json', r2.json())\nobj = r2.json()['data']\nacc = obj['accessToken']\nref = obj['refreshToken']\n\nr3 = client.get('/users/me', headers={'Authorization': f'Bearer {acc}'})\nprint('ME status', r3.status_code)\nprint('ME json', r3.json())\n\nr4 = client.get('/users/me/sessions', headers={'Authorization': f'Bearer {acc}'})\nprint('SESSIONS status', r4.status_code)\nprint('SESSIONS json', r4.json())\n\nr5 = client.post('/auth/refresh', json={'refreshToken': ref})\nprint('REFRESH status', r5.status_code)\nprint('REFRESH json', r5.json())\n\nPY"
 			]
+		},
+		{
+			"label": "run-local-auth-smoke",
+			"type": "shell",
+			"command": "F:/tabeby-api/.venv/Scripts/python.exe",
+			"args": [
+				"- <<",
+				"'PY'",
+				"\nfrom fastapi.testclient import TestClient\nfrom app.main import app\nimport json\n\nc = TestClient(app)\n\n# New contract: create doctor via POST /doctor/profile with phone + json_profile\npayload = {\n  \"phone\": \"+46765588441\",\n  \"json_profile\": {\n    \"general_info\": {\n      \"doctor_name\": \"Dr. Test\",\n      \"email_address\": \"drtest@example.com\",\n      \"doctor_phone_number\": \"+46765588441\",\n      \"experience_years\": \"5\",\n      \"clinic_states\": \"Stockholm\",\n      \"accountStatus\": True,\n      \"number_patients_treated\": \"10\"\n    },\n    \"specializations\": [\"General\"],\n    \"clinic_phone_number\": {\"phone_1\": \"\", \"phone_2\": \"\", \"phone_3\": \"\"},\n    \"clinic_location\": {\"latitude\": \"59.3\", \"longitude\": \"18.0\", \"place_name\": \"Clinic\"}\n  }\n}\n\nr = c.post('/doctor/profile', json=payload)\nprint('CREATE', r.status_code, r.json())\n\n# Verify created row visible in list\nr2 = c.get('/api/doctors')\nprint('LIST', r2.status_code, len(r2.json().get('items', [])))\nprint(r2.json()['items'][-1])\n\nPY"
+			],
+			"group": "build"
 		}
 	]
 }

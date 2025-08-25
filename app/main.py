@@ -12,6 +12,9 @@ from .departments import router as departments_router
 from .doctors import router as doctors_router
 from fastapi.middleware.cors import CORSMiddleware
 from .firebase_init import ensure_firebase_initialized
+from .doctors import _denormalize_profile, _to_ascii_digits  # reuse helpers
+import json
+import re
 
 # إنشاء الجداول عند تشغيل التطبيق لأول مرة (بما في ذلك جداول RBAC الجديدة)
 Base.metadata.create_all(bind=engine)
@@ -272,18 +275,118 @@ def get_doctor_profile_raw():
 @app.post("/doctor/profile")
 @app.post("/doctor/profile.json")
 async def post_doctor_profile_raw(request: Request):
-    body = await request.body()
-    # خزّن النص الخام كما هو في قاعدة البيانات
+    raw = await request.body()
+    text = raw.decode("utf-8", errors="replace")
+
+    # إذا كان الجسم بالشكل الجديد { phone, json_profile } نُنشئ طبيباً ونُرجِع العقد الجديد
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        parsed = None
+
+    if isinstance(parsed, dict) and ("json_profile" in parsed or "phone" in parsed):
+        db = SessionLocal()
+        try:
+            # 1) تحضير الملف الشخصي
+            prof_val = parsed.get("json_profile")
+            if isinstance(prof_val, str):
+                try:
+                    prof = json.loads(prof_val)
+                except Exception:
+                    prof = {}
+                prof_raw = prof_val
+            elif isinstance(prof_val, dict):
+                prof = prof_val
+                prof_raw = json.dumps(prof_val, ensure_ascii=False)
+            else:
+                prof = {}
+                prof_raw = "{}"
+
+            # 2) الهاتف بصيغة E.164
+            phone_in = parsed.get("phone")
+            phone_ascii = _to_ascii_digits(str(phone_in)) if phone_in is not None else None
+            phone_ascii = phone_ascii.strip() if isinstance(phone_ascii, str) else None
+            e164_pat = re.compile(r"^\+[1-9]\d{6,14}$")
+            if not phone_ascii or not e164_pat.match(phone_ascii):
+                return Response(content=json.dumps({"error": {"code": "bad_request", "message": "phone must be E.164 like +46765588441"}}, ensure_ascii=False), media_type="application/json", status_code=400)
+
+            # 3) استخراج قيم من الملف الشخصي وتحديث الهاتف بما أُرسِل
+            den = _denormalize_profile(prof)
+            den["phone"] = phone_ascii
+
+            # 4) إنشاء الطبيب
+            row = models.Doctor(
+                name=den.get("name") or "Doctor",
+                email=den.get("email"),
+                phone=den.get("phone"),
+                experience_years=den.get("experience_years"),
+                patients_count=den.get("patients_count"),
+                status=den.get("status") or "active",
+                specialty=den.get("specialty"),
+                clinic_state=den.get("clinic_state"),
+                profile_json=prof_raw,
+            )
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            return {"doctor_id": row.id, "phone_verification": "pending"}
+        finally:
+            db.close()
+
+    # سلوك التوافق القديم: خزّن النص الخام كما هو في جدول DoctorProfile (slug=default)
     db = SessionLocal()
     try:
         row = db.query(models.DoctorProfile).filter_by(slug="default").first()
         if not row:
-            row = models.DoctorProfile(slug="default", raw_json=body.decode("utf-8", errors="replace"))
+            row = models.DoctorProfile(slug="default", raw_json=text)
             db.add(row)
         else:
-            row.raw_json = body.decode("utf-8", errors="replace")
+            row.raw_json = text
         db.commit()
-        return Response(content=body, media_type="application/json")
+        return Response(content=raw, media_type="application/json")
+    finally:
+        db.close()
+
+# تحقق بعد تسجيل الدخول بالهاتف باستخدام Firebase ID Token
+@app.post("/auth/after-phone-login")
+def after_phone_login(request: Request):
+    # استخراج التوكن من الهيدر Authorization: Bearer <ID_TOKEN>
+    authz = request.headers.get("authorization") or request.headers.get("Authorization")
+    if not authz or not authz.lower().startswith("bearer "):
+        return Response(content=json.dumps({"error": {"code": "unauthorized", "message": "Missing Bearer token"}}), media_type="application/json", status_code=401)
+    id_token = authz.split(" ", 1)[1].strip()
+
+    try:
+        ensure_firebase_initialized()
+        from firebase_admin import auth as firebase_auth  # type: ignore
+        decoded = firebase_auth.verify_id_token(id_token)
+        uid = decoded.get("uid")
+        phone = decoded.get("phone_number")
+        # إن لم يوجد phone_number داخل التوكن، اجلب المستخدم للتأكد
+        if not phone and uid:
+            try:
+                u = firebase_auth.get_user(uid)
+                phone = getattr(u, "phone_number", None)
+            except Exception:
+                phone = None
+    except Exception as e:
+        return Response(content=json.dumps({"error": {"code": "unauthorized", "message": f"Token invalid: {str(e)}"}}), media_type="application/json", status_code=401)
+
+    if not phone:
+        return Response(content=json.dumps({"error": {"code": "bad_request", "message": "No phone_number in token"}}), media_type="application/json", status_code=400)
+
+    # طبّق تحويل الأرقام والتأكد من E.164
+    phone_ascii = _to_ascii_digits(str(phone)).strip()
+    if not re.match(r"^\+[1-9]\d{6,14}$", phone_ascii):
+        return Response(content=json.dumps({"error": {"code": "bad_request", "message": "phone_number not E.164"}}), media_type="application/json", status_code=400)
+
+    # ابحث عن الطبيب حسب رقم الهاتف
+    db = SessionLocal()
+    try:
+        doc = db.query(models.Doctor).filter(models.Doctor.phone == phone_ascii).order_by(models.Doctor.id.desc()).first()
+        if not doc:
+            return Response(content=json.dumps({"error": {"code": "not_found", "message": "Doctor not found for this phone"}}), media_type="application/json", status_code=404)
+        return {"doctor_id": doc.id, "status": "phone_verified", "phone": phone_ascii}
     finally:
         db.close()
 
