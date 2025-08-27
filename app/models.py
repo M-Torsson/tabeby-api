@@ -3,6 +3,20 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
 
+# ===== User Accounts (role + phone, global id) =====
+
+class UserAccount(Base):
+    __tablename__ = "user_accounts"
+
+    # هذا هو user_server_id الذي سنعيده للفرونت
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_uid = Column(String, nullable=True, index=True)  # Firebase UID أو معرف خارجي
+    user_role = Column(String, nullable=False, index=True)  # patient | secretary | doctor
+    phone_number = Column(String, nullable=False, unique=True, index=True)
+    # روابط اختيارية إلى جداول المجال
+    doctor_id = Column(Integer, ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class Patient(Base):
     __tablename__ = "patients"
 

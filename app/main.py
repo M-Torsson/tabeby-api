@@ -284,7 +284,7 @@ async def post_doctor_profile_raw(request: Request):
     except Exception:
         parsed = None
 
-    if isinstance(parsed, dict) and ("json_profile" in parsed or "phone" in parsed):
+    if isinstance(parsed, dict) and ("json_profile" in parsed or "phone" in parsed or "user_server_id" in parsed):
         db = SessionLocal()
         try:
             # 1) تحضير الملف الشخصي
@@ -302,13 +302,26 @@ async def post_doctor_profile_raw(request: Request):
                 prof = {}
                 prof_raw = "{}"
 
-            # 2) الهاتف بصيغة E.164
+            # 2) الهاتف بصيغة E.164 (يمكن تجاوزه إن كان مرتبطًا بحساب مستخدم موجود)
             phone_in = parsed.get("phone")
             phone_ascii = _to_ascii_digits(str(phone_in)) if phone_in is not None else None
             phone_ascii = phone_ascii.strip() if isinstance(phone_ascii, str) else None
             e164_pat = re.compile(r"^\+[1-9]\d{6,14}$")
+
+            # لو وصل user_server_id، اجلب حساب المستخدم لاستنتاج الهاتف
+            acct = None
+            user_server_id = parsed.get("user_server_id")
+            if user_server_id is not None:
+                try:
+                    uid_int = int(str(user_server_id))
+                    acct = db.query(models.UserAccount).filter_by(id=uid_int).first()
+                except Exception:
+                    acct = None
+            if acct and acct.phone_number:
+                phone_ascii = acct.phone_number
+
             if not phone_ascii or not e164_pat.match(phone_ascii):
-                return Response(content=json.dumps({"error": {"code": "bad_request", "message": "phone must be E.164 like +46765588441"}}, ensure_ascii=False), media_type="application/json", status_code=400)
+                return Response(content=json.dumps({"error": {"code": "bad_request", "message": "phone must be E.164 like +46765588441 or provide valid user_server_id"}}, ensure_ascii=False), media_type="application/json", status_code=400)
 
             # 3) استخراج قيم من الملف الشخصي وتحديث الهاتف بما أُرسِل
             den = _denormalize_profile(prof)
@@ -329,6 +342,10 @@ async def post_doctor_profile_raw(request: Request):
             db.add(row)
             db.commit()
             db.refresh(row)
+            # اربط حساب المستخدم (إن وجد) بهذا الطبيب
+            if acct and not acct.doctor_id:
+                acct.doctor_id = row.id
+                db.commit()
             return {"doctor_id": row.id, "phone_verification": "pending"}
         finally:
             db.close()
@@ -383,10 +400,80 @@ def after_phone_login(request: Request):
     # ابحث عن الطبيب حسب رقم الهاتف
     db = SessionLocal()
     try:
-        doc = db.query(models.Doctor).filter(models.Doctor.phone == phone_ascii).order_by(models.Doctor.id.desc()).first()
+        # أولاً: لو يوجد حساب مستخدم لهذا الهاتف، استخدم الربط المباشر
+        acct = db.query(models.UserAccount).filter(models.UserAccount.phone_number == phone_ascii).first()
+        if acct and acct.doctor_id:
+            doc = db.query(models.Doctor).filter(models.Doctor.id == acct.doctor_id).first()
+        else:
+            doc = db.query(models.Doctor).filter(models.Doctor.phone == phone_ascii).order_by(models.Doctor.id.desc()).first()
         if not doc:
             return Response(content=json.dumps({"error": {"code": "not_found", "message": "Doctor not found for this phone"}}), media_type="application/json", status_code=404)
+        # إن كان لدينا حساب مستخدم ولم يُربط بعد، اربطه الآن
+        if acct and not acct.doctor_id:
+            acct.doctor_id = doc.id
+            db.commit()
         return {"doctor_id": doc.id, "status": "phone_verified", "phone": phone_ascii}
+    finally:
+        db.close()
+
+# تسجيل مستخدم عام (مريض/سكرتير/دكتور) وإرجاع user_server_id
+@app.post("/auth/register")
+async def register_user(request: Request):
+    try:
+        body = await request.json()
+        assert isinstance(body, dict)
+    except Exception:
+        return Response(content=json.dumps({"error": {"code": "bad_request", "message": "Invalid JSON"}}), media_type="application/json", status_code=400)
+
+    user_uid = (body.get("user_uid") or "").strip() or None
+    user_role = (body.get("user_role") or "").strip()
+    phone = (body.get("phone_number") or "").strip()
+    from .doctors import _to_ascii_digits as _digits
+    phone = _digits(phone)
+
+    if user_role not in {"patient", "secretary", "doctor"}:
+        return Response(content=json.dumps({"error": {"code": "bad_request", "message": "user_role must be patient|secretary|doctor"}}), media_type="application/json", status_code=400)
+    if not re.match(r"^\+[1-9]\d{6,14}$", phone or ""):
+        return Response(content=json.dumps({"error": {"code": "bad_request", "message": "phone_number must be E.164"}}), media_type="application/json", status_code=400)
+
+    db = SessionLocal()
+    try:
+        # unique على رقم الهاتف؛ إن كان موجودًا أعده
+        existing = db.query(models.UserAccount).filter(models.UserAccount.phone_number == phone).first()
+        if existing:
+            return {"message": "ok", "user_server_id": existing.id}
+        row = models.UserAccount(user_uid=user_uid, user_role=user_role, phone_number=phone)
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return {"message": "database created successfuly", "user_server_id": row.id}
+    finally:
+        db.close()
+
+# إرجاع قائمة الأرقام لكل دور
+@app.get("/auth/phones")
+def list_phones_by_role(role: str):
+    if role not in {"patient", "secretary", "doctor"}:
+        return Response(content=json.dumps({"error": {"code": "bad_request", "message": "role must be patient|secretary|doctor"}}), media_type="application/json", status_code=400)
+    db = SessionLocal()
+    try:
+        rows = db.query(models.UserAccount).filter(models.UserAccount.user_role == role).order_by(models.UserAccount.id.asc()).all()
+        return {"items": [{"user_server_id": r.id, "phone_number": r.phone_number, "user_uid": r.user_uid} for r in rows]}
+    finally:
+        db.close()
+
+# جلب بروفايل دكتور بواسطة user_server_id
+@app.get("/doctor/profile/by-user/{user_server_id}")
+def get_doctor_by_user(user_server_id: int):
+    db = SessionLocal()
+    try:
+        acct = db.query(models.UserAccount).filter_by(id=user_server_id).first()
+        if not acct or not acct.doctor_id:
+            return Response(content=json.dumps({"error": {"code": "not_found", "message": "No doctor mapped to this user"}}), media_type="application/json", status_code=404)
+        doc = db.query(models.Doctor).filter_by(id=acct.doctor_id).first()
+        if not doc:
+            return Response(content=json.dumps({"error": {"code": "not_found", "message": "Doctor not found"}}), media_type="application/json", status_code=404)
+        return {"id": doc.id, "name": doc.name, "email": doc.email, "phone": doc.phone, "specialty": doc.specialty, "status": doc.status}
     finally:
         db.close()
 
