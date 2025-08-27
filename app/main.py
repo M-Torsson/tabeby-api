@@ -441,12 +441,12 @@ async def register_user(request: Request):
         # unique على رقم الهاتف؛ إن كان موجودًا أعده
         existing = db.query(models.UserAccount).filter(models.UserAccount.phone_number == phone).first()
         if existing:
-            return {"message": "ok", "user_server_id": existing.id}
+            return {"message": "ok", "user_server_id": existing.id, "user_role": existing.user_role}
         row = models.UserAccount(user_uid=user_uid, user_role=user_role, phone_number=phone)
         db.add(row)
         db.commit()
         db.refresh(row)
-        return {"message": "database created successfuly", "user_server_id": row.id}
+        return {"message": "database created successfuly", "user_server_id": row.id, "user_role": row.user_role}
     finally:
         db.close()
 
@@ -457,8 +457,23 @@ def list_phones_by_role(role: str):
         return Response(content=json.dumps({"error": {"code": "bad_request", "message": "role must be patient|secretary|doctor"}}), media_type="application/json", status_code=400)
     db = SessionLocal()
     try:
-        rows = db.query(models.UserAccount).filter(models.UserAccount.user_role == role).order_by(models.UserAccount.id.asc()).all()
-        return {"items": [{"user_server_id": r.id, "phone_number": r.phone_number, "user_uid": r.user_uid} for r in rows]}
+        rows = (
+            db.query(models.UserAccount)
+            .filter(models.UserAccount.user_role == role)
+            .order_by(models.UserAccount.id.asc())
+            .all()
+        )
+        return {
+            "items": [
+                {
+                    "user_server_id": r.id,
+                    "phone_number": r.phone_number,
+                    "user_uid": r.user_uid,
+                    "user_role": r.user_role,
+                }
+                for r in rows
+            ]
+        }
     finally:
         db.close()
 
