@@ -71,7 +71,12 @@ def _denormalize_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     specialty = None
     specs = profile.get("specializations")
     if isinstance(specs, list) and specs:
-        specialty = str(specs[0])
+        first = specs[0]
+        if isinstance(first, dict):
+            # يدعم الشكل الجديد [{id,name}]
+            specialty = str(first.get("name") or "").strip() or None
+        else:
+            specialty = str(first)
     clinic_state = g.get("clinic_states") or None
     return {
         "name": name,
@@ -185,12 +190,11 @@ def get_doctor(doctor_id: int, db: Session = Depends(get_db)):
         "phone": r.phone,
         "status": r.status,
     }
-    profile_out = {
-        "general_info": profile.get("general_info", {}),
-        "clinic_location": profile.get("clinic_location", {}),
-        "clinic_phone_number": profile.get("clinic_phone_number", {}),
-        "account": acc,
-    }
+    # أعِد كل الحقول كما هي بالإضافة إلى account
+    profile_out: Dict[str, Any] = {}
+    if isinstance(profile, dict):
+        profile_out = dict(profile)
+    profile_out["account"] = acc
     return {"id": r.id, "profile": profile_out}
 
 
@@ -210,21 +214,23 @@ async def update_doctor(doctor_id: int, request: Request, db: Session = Depends(
         profile = json.loads(r.profile_json) if r.profile_json else {}
     except Exception:
         profile = {}
-    # shallow merge on top-level blocks
-    for k in ["general_info", "clinic_location", "clinic_phone_number", "account"]:
-        if k in patch and isinstance(patch[k], dict):
-            if k == "account":
-                # update denormalized via this block
-                if "email" in patch[k]:
-                    r.email = patch[k]["email"] or None
-                if "phone" in patch[k]:
-                    r.phone = patch[k]["phone"] or None
-                if "status" in patch[k]:
-                    r.status = patch[k]["status"] or r.status
-            else:
-                base = profile.get(k) if isinstance(profile.get(k), dict) else {}
-                base.update(patch[k])
-                profile[k] = base
+    # دمج مرن: دعم كل المفاتيح العليا، مع معالجة خاصة لحقل account لتحديث الأعمدة المنزوعة التطبيع
+    for k, v in patch.items():
+        if k == "account" and isinstance(v, dict):
+            if "email" in v:
+                r.email = v["email"] or None
+            if "phone" in v:
+                r.phone = v["phone"] or None
+            if "status" in v:
+                r.status = v["status"] or r.status
+            continue
+        # دمج dicts بشكل سطحي، وضع باقي الأنواع كما هي
+        if isinstance(v, dict):
+            base = profile.get(k) if isinstance(profile.get(k), dict) else {}
+            base.update(v)
+            profile[k] = base
+        else:
+            profile[k] = v
     # also update denormalized columns from general_info/specializations
     den = _denormalize_profile({**profile})
     if den.get("name"):
