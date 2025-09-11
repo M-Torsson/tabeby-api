@@ -45,6 +45,19 @@ def _safe_int(v: Any) -> Optional[int]:
         return None
 
 
+def _safe_bool(v: Any, default: Optional[bool] = None) -> Optional[bool]:
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return default
+    s = str(v).strip().lower()
+    if s in {"true", "1", "yes", "y"}:
+        return True
+    if s in {"false", "0", "no", "n"}:
+        return False
+    return default
+
+
 DEFAULT_PROFILE = {
     "general_info": {
         "doctor_name": "Doctor",
@@ -67,7 +80,11 @@ def _denormalize_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     phone = g.get("doctor_phone_number") or None
     experience = _safe_int(g.get("experience_years"))
     patients = _safe_int(g.get("number_patients_treated"))
-    status = "active" if bool(g.get("accountStatus", True)) else "inactive"
+    # دعم المفتاح الجديد account_status بالإضافة إلى accountStatus القديم
+    status_bool = _safe_bool(g.get("account_status"), default=None)
+    if status_bool is None:
+        status_bool = _safe_bool(g.get("accountStatus"), default=True)
+    status = "active" if bool(status_bool) else "inactive"
     specialty = None
     specs = profile.get("specializations")
     if isinstance(specs, list) and specs:
