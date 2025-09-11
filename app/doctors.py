@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import re
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -25,6 +26,18 @@ def get_db():
 
 def error(code: str, message: str, status: int = 400):
     return JSONResponse(status_code=status, content={"error": {"code": code, "message": message}})
+
+
+def require_profile_secret(request: Request):
+    """Require a static secret for accessing doctor profile.
+    - Set DOCTOR_PROFILE_SECRET in environment.
+    - Client must send Doctor-Secret header with the exact same value.
+    If header is missing or does not match, return 403.
+    """
+    secret = os.getenv("DOCTOR_PROFILE_SECRET") or ""
+    provided = request.headers.get("Doctor-Secret")
+    if not provided or provided != secret:
+        raise HTTPException(status_code=403, detail="forbidden")
 
 
 def _to_ascii_digits(s: str | None) -> Optional[str]:
@@ -193,7 +206,7 @@ def list_doctors(
 
 
 @router.get("/doctors/{doctor_id}")
-def get_doctor(doctor_id: int, db: Session = Depends(get_db)):
+def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
     r = db.query(models.Doctor).filter_by(id=doctor_id).first()
     if not r:
         return error("not_found", "Doctor not found", 404)
@@ -208,6 +221,28 @@ def get_doctor(doctor_id: int, db: Session = Depends(get_db)):
         "status": r.status,
     }
     # أعِد كل الحقول كما هي بالإضافة إلى account
+    profile_out: Dict[str, Any] = {}
+    if isinstance(profile, dict):
+        profile_out = dict(profile)
+    profile_out["account"] = acc
+    return {"id": r.id, "profile": profile_out}
+
+
+@router.get("/doctor_profile")
+def get_doctor_profile_api(doctor_id: int, secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
+    """
+    Endpoint مختصر لجلب بروفايل دكتور عن طريق ?doctor_id=123
+    - محمي بهيدر Doctor-Secret المطابق لقيمة DOCTOR_PROFILE_SECRET
+    - يُعيد نفس شكل الاستجابة مثل GET /api/doctors/{id}
+    """
+    r = db.query(models.Doctor).filter_by(id=doctor_id).first()
+    if not r:
+        return error("not_found", "Doctor not found", 404)
+    try:
+        profile = json.loads(r.profile_json) if r.profile_json else DEFAULT_PROFILE
+    except Exception:
+        profile = DEFAULT_PROFILE
+    acc = {"email": r.email, "phone": r.phone, "status": r.status}
     profile_out: Dict[str, Any] = {}
     if isinstance(profile, dict):
         profile_out = dict(profile)
@@ -263,7 +298,7 @@ async def update_doctor(doctor_id: int, request: Request, db: Session = Depends(
 
     r.profile_json = json.dumps(profile, ensure_ascii=False)
     db.commit()
-    return get_doctor(doctor_id, db=db)
+    return {"ok": True, "id": doctor_id}
 
 
 @router.patch("/doctors/{doctor_id}/status")
