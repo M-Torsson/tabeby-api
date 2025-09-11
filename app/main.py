@@ -259,7 +259,9 @@ RAW_DOCTOR_PROFILE_JSON = r"""{
 @app.get("/doctor/profile")
 @app.get("/doctor/profile.json")
 def get_doctor_profile_raw():
-    # اقرأ من قاعدة البيانات؛ إذا لم توجد سجلات، أنشئ الافتراضي
+    """
+    يُعيد حالة بسيطة بدل إعادة نفس JSON المخزّن.
+    """
     db = SessionLocal()
     try:
         row = db.query(models.DoctorProfile).filter_by(slug="default").first()
@@ -267,8 +269,9 @@ def get_doctor_profile_raw():
             row = models.DoctorProfile(slug="default", raw_json=RAW_DOCTOR_PROFILE_JSON)
             db.add(row)
             db.commit()
-            db.refresh(row)
-        return Response(content=row.raw_json, media_type="application/json")
+        return {"message": "Done"}
+    except Exception:
+        return Response(content=json.dumps({"message": "Failed"}, ensure_ascii=False), media_type="application/json", status_code=500)
     finally:
         db.close()
     
@@ -360,7 +363,13 @@ async def post_doctor_profile_raw(request: Request):
         else:
             row.raw_json = text
         db.commit()
-        return Response(content=raw, media_type="application/json")
+        return {"message": "تم"}
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return Response(content=json.dumps({"message": "فشل"}, ensure_ascii=False), media_type="application/json", status_code=500)
     finally:
         db.close()
 
