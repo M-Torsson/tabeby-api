@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .firebase_init import ensure_firebase_initialized
 from .doctors import _denormalize_profile, _to_ascii_digits  # reuse helpers
 import json
+import uuid
 import re
 from typing import Any, Dict
 
@@ -382,7 +383,6 @@ async def post_doctor_profile_raw(request: Request):
     # سلوك التوافق القديم: خزّن النص الخام كما هو في جدول DoctorProfile (slug=default)
     db = SessionLocal()
     try:
-        row = db.query(models.DoctorProfile).filter_by(slug="default").first()
         # حاول تحويل النص إلى JSON وتطبيق التطبيع إن أمكن
         normalized_text = text
         try:
@@ -392,11 +392,10 @@ async def post_doctor_profile_raw(request: Request):
                 normalized_text = json.dumps(obj, ensure_ascii=False)
         except Exception:
             pass
-        if not row:
-            row = models.DoctorProfile(slug="default", raw_json=normalized_text)
-            db.add(row)
-        else:
-            row.raw_json = normalized_text
+        # أنشئ صفًا جديدًا دائمًا مع slug فريد حتى يتم حفظ كل JSON كصف مستقل
+        unique_slug = f"auto-{uuid.uuid4().hex[:12]}"
+        row = models.DoctorProfile(slug=unique_slug, raw_json=normalized_text)
+        db.add(row)
         db.commit()
         # المتطلب الجديد: لا تُرجع محتوى الملف، فقط رسالة نجاح
         return {"message": "success"}
