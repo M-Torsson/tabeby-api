@@ -209,7 +209,23 @@ def list_doctors(
 def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
     r = db.query(models.Doctor).filter_by(id=doctor_id).first()
     if not r:
-        return error("not_found", "Doctor not found", 404)
+        # لم يتم العثور على دكتور بمعرّف الجدول الأساسي؛ جرّب البحث بواسطة clinic_id داخل profile_json
+        try:
+            rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).all()
+            for rr in rows:
+                try:
+                    prof = json.loads(rr.profile_json) if rr.profile_json else None
+                    g = prof.get("general_info", {}) if isinstance(prof, dict) else {}
+                    cid = _safe_int(g.get("clinic_id"))
+                    if cid is not None and cid == doctor_id:
+                        r = rr
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            r = None
+        if not r:
+            return error("not_found", "Doctor not found", 404)
     try:
         profile = json.loads(r.profile_json) if r.profile_json else DEFAULT_PROFILE
     except Exception:
