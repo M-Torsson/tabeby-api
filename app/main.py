@@ -375,12 +375,12 @@ async def post_doctor_profile_raw(request: Request):
             if acct and not acct.doctor_id:
                 acct.doctor_id = row.id
                 db.commit()
-            # إرجاع رسالة نجاح فقط بحسب المتطلب الجديد
-            return {"message": "success"}
+            # إرجاع رسالة نجاح + معرف الدكتور المُنشأ لتسهيل الاستعلام لاحقًا
+            return {"message": "success", "doctor_id": row.id}
         finally:
             db.close()
 
-    # سلوك التوافق القديم: خزّن النص الخام كما هو في جدول DoctorProfile (slug=default)
+    # سلوك التوافق القديم: خزّن النص الخام كما هو في جدول DoctorProfile كسجل جديد دائمًا
     db = SessionLocal()
     try:
         # حاول تحويل النص إلى JSON وتطبيق التطبيع إن أمكن
@@ -397,8 +397,8 @@ async def post_doctor_profile_raw(request: Request):
         row = models.DoctorProfile(slug=unique_slug, raw_json=normalized_text)
         db.add(row)
         db.commit()
-        # المتطلب الجديد: لا تُرجع محتوى الملف، فقط رسالة نجاح
-        return {"message": "success"}
+        # أعِد رسالة نجاح + بيانات تعريفية للصف المُنشأ
+        return {"message": "success", "profile_id": row.id, "profile_slug": unique_slug}
     except Exception:
         try:
             db.rollback()
