@@ -277,7 +277,8 @@ def _normalize_clinic_waiting_time(profile_obj: Dict[str, Any]) -> Dict[str, Any
 @app.get("/doctor/profile.json")
 def get_doctor_profile_raw():
     """
-    يُعيد حالة بسيطة بدل إعادة نفس JSON المخزّن.
+    يُعيد ملف JSON المخزَّن كما هو من جدول DoctorProfile (slug=default).
+    في حال عدم وجود صف سيتم إنشاؤه بالقيمة الافتراضية ثم إرجاعها.
     """
     db = SessionLocal()
     try:
@@ -286,9 +287,18 @@ def get_doctor_profile_raw():
             row = models.DoctorProfile(slug="default", raw_json=RAW_DOCTOR_PROFILE_JSON)
             db.add(row)
             db.commit()
-        return {"message": "Done"}
+        # حاول فك JSON وإرجاعه كما هو
+        try:
+            obj = json.loads(row.raw_json) if row.raw_json else {}
+        except Exception:
+            return Response(
+                content=json.dumps({"خطأ": "تعذّر قراءة ملف البروفايل المخزّن"}, ensure_ascii=False),
+                media_type="application/json",
+                status_code=500,
+            )
+        return obj
     except Exception:
-        return Response(content=json.dumps({"message": "Failed"}, ensure_ascii=False), media_type="application/json", status_code=500)
+        return Response(content=json.dumps({"خطأ": "فشل في جلب البروفايل"}, ensure_ascii=False), media_type="application/json", status_code=500)
     finally:
         db.close()
     
