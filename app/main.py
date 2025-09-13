@@ -375,12 +375,12 @@ async def post_doctor_profile_raw(request: Request):
             if acct and not acct.doctor_id:
                 acct.doctor_id = row.id
                 db.commit()
-            # إرجاع رسالة نجاح + معرف الدكتور المُنشأ لتسهيل الاستعلام لاحقًا
-            return {"message": "success", "doctor_id": row.id}
+            # إرجاع رسالة نجاح فقط حسب العقد المطلوب
+            return {"message": "success"}
         finally:
             db.close()
 
-    # سلوك التوافق القديم: خزّن النص الخام كما هو في جدول DoctorProfile كسجل جديد دائمًا
+    # سلوك التوافق القديم: أنشئ Doctor جديد واحفظ JSON كـ profile_json بدل DoctorProfile
     db = SessionLocal()
     try:
         # حاول تحويل النص إلى JSON وتطبيق التطبيع إن أمكن
@@ -392,13 +392,27 @@ async def post_doctor_profile_raw(request: Request):
                 normalized_text = json.dumps(obj, ensure_ascii=False)
         except Exception:
             pass
-        # أنشئ صفًا جديدًا دائمًا مع slug فريد حتى يتم حفظ كل JSON كصف مستقل
-        unique_slug = f"auto-{uuid.uuid4().hex[:12]}"
-        row = models.DoctorProfile(slug=unique_slug, raw_json=normalized_text)
+        # استخرج الحقول المنزوعة التطبيع وأنشئ Doctor
+        try:
+            prof_obj = json.loads(normalized_text)
+        except Exception:
+            prof_obj = {}
+        den = _denormalize_profile(prof_obj if isinstance(prof_obj, dict) else {})
+        row = models.Doctor(
+            name=den.get("name") or "Doctor",
+            email=den.get("email"),
+            phone=den.get("phone"),
+            experience_years=den.get("experience_years"),
+            patients_count=den.get("patients_count"),
+            status=den.get("status") or "active",
+            specialty=den.get("specialty"),
+            clinic_state=den.get("clinic_state"),
+            profile_json=normalized_text,
+        )
         db.add(row)
         db.commit()
-        # أعِد رسالة نجاح + بيانات تعريفية للصف المُنشأ
-        return {"message": "success", "profile_id": row.id, "profile_slug": unique_slug}
+        # أعِد رسالة نجاح فقط
+        return {"message": "success"}
     except Exception:
         try:
             db.rollback()

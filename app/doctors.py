@@ -86,6 +86,20 @@ DEFAULT_PROFILE = {
 }
 
 
+def _extract_clinic_id_from_profile_json(profile_json: str | None) -> Optional[int]:
+    if not profile_json:
+        return None
+    try:
+        obj = json.loads(profile_json)
+        if isinstance(obj, dict):
+            g = obj.get("general_info", {})
+            if isinstance(g, dict):
+                return _safe_int(g.get("clinic_id"))
+    except Exception:
+        return None
+    return None
+
+
 def _denormalize_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     g = profile.get("general_info", {}) if isinstance(profile.get("general_info"), dict) else {}
     name = g.get("doctor_name") or "Doctor"
@@ -209,23 +223,8 @@ def list_doctors(
 def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
     r = db.query(models.Doctor).filter_by(id=doctor_id).first()
     if not r:
-        # لم يتم العثور على دكتور بمعرّف الجدول الأساسي؛ جرّب البحث بواسطة clinic_id داخل profile_json
-        try:
-            rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).all()
-            for rr in rows:
-                try:
-                    prof = json.loads(rr.profile_json) if rr.profile_json else None
-                    g = prof.get("general_info", {}) if isinstance(prof, dict) else {}
-                    cid = _safe_int(g.get("clinic_id"))
-                    if cid is not None and cid == doctor_id:
-                        r = rr
-                        break
-                except Exception:
-                    continue
-        except Exception:
-            r = None
-        if not r:
-            return error("not_found", "Doctor not found", 404)
+        # سلوك صارم: هذا المسار يبحث فقط بالمعرّف الأساسي لسجل doctors
+        return error("not_found", "Doctor not found", 404)
     try:
         profile = json.loads(r.profile_json) if r.profile_json else DEFAULT_PROFILE
     except Exception:
@@ -242,6 +241,32 @@ def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret)
         profile_out = dict(profile)
     profile_out["account"] = acc
     return {"id": r.id, "profile": profile_out}
+
+
+@router.get("/doctors/by-clinic-id/{clinic_id}")
+@router.get("/doctors/clinic/{clinic_id}")
+def get_doctor_by_clinic_id(clinic_id: int, secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
+    rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).all()
+    matches = []
+    for r in rows:
+        cid = _extract_clinic_id_from_profile_json(r.profile_json)
+        if cid is not None and cid == clinic_id:
+            matches.append(r)
+
+    if len(matches) == 0:
+        return error("clinic_id_not_found", "clinic_id not found. Please verify the value.", 404)
+    if len(matches) > 1:
+        return error("clinic_id_duplicate", "clinic_id is duplicated in the database.", 409)
+
+    r = matches[0]
+    try:
+        profile = json.loads(r.profile_json) if r.profile_json else DEFAULT_PROFILE
+    except Exception:
+        profile = DEFAULT_PROFILE
+    acc = {"email": r.email, "phone": r.phone, "status": r.status}
+    out = dict(profile) if isinstance(profile, dict) else {}
+    out["account"] = acc
+    return {"id": r.id, "profile": out}
 
 
 @router.get("/doctor_profile")
