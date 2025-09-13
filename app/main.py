@@ -12,11 +12,12 @@ from .departments import router as departments_router
 from .doctors import router as doctors_router
 from fastapi.middleware.cors import CORSMiddleware
 from .firebase_init import ensure_firebase_initialized
-from .doctors import _denormalize_profile, _to_ascii_digits  # reuse helpers
+from .doctors import _denormalize_profile, _to_ascii_digits, _safe_int  # reuse helpers
 import json
 import uuid
 import re
 from typing import Any, Dict
+from sqlalchemy import text
 
 # إنشاء الجداول عند تشغيل التطبيق لأول مرة (بما في ذلك جداول RBAC الجديدة)
 Base.metadata.create_all(bind=engine)
@@ -352,24 +353,51 @@ async def post_doctor_profile_raw(request: Request):
             if not phone_ascii or not e164_pat.match(phone_ascii):
                 return Response(content=json.dumps({"error": {"code": "bad_request", "message": "phone must be E.164 like +46765588441 or provide valid user_server_id"}}, ensure_ascii=False), media_type="application/json", status_code=400)
 
-            # 3) استخراج قيم من الملف الشخصي وتحديث الهاتف بما أُرسِل
+            # 3) استخراج clinic_id من الملف الشخصي والتحقق من وجوده
+            g = prof.get("general_info", {}) if isinstance(prof.get("general_info"), dict) else {}
+            clinic_id = _safe_int(g.get("clinic_id"))
+            if clinic_id is None:
+                return Response(content=json.dumps({"error": {"code": "bad_request", "message": "clinic_id is required in general_info"}}, ensure_ascii=False), media_type="application/json", status_code=400)
+
+            # استخراج قيم من الملف الشخصي وتحديث الهاتف بما أُرسِل
             den = _denormalize_profile(prof)
             den["phone"] = phone_ascii
 
-            # 4) إنشاء الطبيب
-            row = models.Doctor(
-                name=den.get("name") or "Doctor",
-                email=den.get("email"),
-                phone=den.get("phone"),
-                experience_years=den.get("experience_years"),
-                patients_count=den.get("patients_count"),
-                status=den.get("status") or "active",
-                specialty=den.get("specialty"),
-                clinic_state=den.get("clinic_state"),
-                profile_json=prof_raw,
-            )
-            db.add(row)
-            db.commit()
+            # 4) إنشاء/تحديث الطبيب بمعرّف = clinic_id
+            row = db.query(models.Doctor).filter_by(id=clinic_id).first()
+            if row:
+                # تحديث
+                row.name = den.get("name") or row.name or "Doctor"
+                row.email = den.get("email")
+                row.phone = den.get("phone")
+                row.experience_years = den.get("experience_years")
+                row.patients_count = den.get("patients_count")
+                row.status = den.get("status") or row.status or "active"
+                row.specialty = den.get("specialty")
+                row.clinic_state = den.get("clinic_state")
+                row.profile_json = prof_raw
+                db.commit()
+            else:
+                row = models.Doctor(
+                    id=clinic_id,
+                    name=den.get("name") or "Doctor",
+                    email=den.get("email"),
+                    phone=den.get("phone"),
+                    experience_years=den.get("experience_years"),
+                    patients_count=den.get("patients_count"),
+                    status=den.get("status") or "active",
+                    specialty=den.get("specialty"),
+                    clinic_state=den.get("clinic_state"),
+                    profile_json=prof_raw,
+                )
+                db.add(row)
+                db.commit()
+                # رفع قيمة sequence في Postgres لتفادي تضارب المعرّفات لاحقًا
+                try:
+                    db.execute(text("SELECT setval(pg_get_serial_sequence('doctors','id'), (SELECT GREATEST(COALESCE(MAX(id),1), 1) FROM doctors))"))
+                    db.commit()
+                except Exception:
+                    pass
             db.refresh(row)
             # اربط حساب المستخدم (إن وجد) بهذا الطبيب
             if acct and not acct.doctor_id:
@@ -380,7 +408,7 @@ async def post_doctor_profile_raw(request: Request):
         finally:
             db.close()
 
-    # سلوك التوافق القديم: أنشئ Doctor جديد واحفظ JSON كـ profile_json بدل DoctorProfile
+    # سلوك التوافق القديم: أنشئ/حدّث Doctor واحفظ JSON كـ profile_json بدل DoctorProfile
     db = SessionLocal()
     try:
         # حاول تحويل النص إلى JSON وتطبيق التطبيع إن أمكن
@@ -392,25 +420,49 @@ async def post_doctor_profile_raw(request: Request):
                 normalized_text = json.dumps(obj, ensure_ascii=False)
         except Exception:
             pass
-        # استخرج الحقول المنزوعة التطبيع وأنشئ Doctor
+        # استخرج الحقول المنزوعة التطبيع وأنشئ/حدّث Doctor
         try:
             prof_obj = json.loads(normalized_text)
         except Exception:
             prof_obj = {}
         den = _denormalize_profile(prof_obj if isinstance(prof_obj, dict) else {})
-        row = models.Doctor(
-            name=den.get("name") or "Doctor",
-            email=den.get("email"),
-            phone=den.get("phone"),
-            experience_years=den.get("experience_years"),
-            patients_count=den.get("patients_count"),
-            status=den.get("status") or "active",
-            specialty=den.get("specialty"),
-            clinic_state=den.get("clinic_state"),
-            profile_json=normalized_text,
-        )
-        db.add(row)
-        db.commit()
+        g = prof_obj.get("general_info", {}) if isinstance(prof_obj, dict) else {}
+        clinic_id = _safe_int(g.get("clinic_id"))
+        if clinic_id is None:
+            return Response(content=json.dumps({"error": {"code": "bad_request", "message": "clinic_id is required in general_info"}}, ensure_ascii=False), media_type="application/json", status_code=400)
+        row = db.query(models.Doctor).filter_by(id=clinic_id).first()
+        if row:
+            # تحديث
+            row.name = den.get("name") or row.name or "Doctor"
+            row.email = den.get("email")
+            row.phone = den.get("phone")
+            row.experience_years = den.get("experience_years")
+            row.patients_count = den.get("patients_count")
+            row.status = den.get("status") or row.status or "active"
+            row.specialty = den.get("specialty")
+            row.clinic_state = den.get("clinic_state")
+            row.profile_json = normalized_text
+            db.commit()
+        else:
+            row = models.Doctor(
+                id=clinic_id,
+                name=den.get("name") or "Doctor",
+                email=den.get("email"),
+                phone=den.get("phone"),
+                experience_years=den.get("experience_years"),
+                patients_count=den.get("patients_count"),
+                status=den.get("status") or "active",
+                specialty=den.get("specialty"),
+                clinic_state=den.get("clinic_state"),
+                profile_json=normalized_text,
+            )
+            db.add(row)
+            db.commit()
+            try:
+                db.execute(text("SELECT setval(pg_get_serial_sequence('doctors','id'), (SELECT GREATEST(COALESCE(MAX(id),1), 1) FROM doctors))"))
+                db.commit()
+            except Exception:
+                pass
         # أعِد رسالة نجاح فقط
         return {"message": "success"}
     except Exception:
