@@ -15,6 +15,7 @@ from .firebase_init import ensure_firebase_initialized
 from .doctors import _denormalize_profile, _to_ascii_digits  # reuse helpers
 import json
 import re
+from typing import Any, Dict
 
 # إنشاء الجداول عند تشغيل التطبيق لأول مرة (بما في ذلك جداول RBAC الجديدة)
 Base.metadata.create_all(bind=engine)
@@ -252,9 +253,25 @@ RAW_DOCTOR_PROFILE_JSON = r"""{
         "from" : "1:00 مساءا"
     },
     "clinic_waiting_time" : {
-        "value" : "من ٢٥ الى ٣٠ دقيقة"
+        "id" : 3,
+        "name" : "15 دقيقة"
     }
 }"""
+
+# تحويل شكل الحقل clinic_waiting_time من الشكل القديم { value: "..." }
+# إلى الشكل الجديد { id: 3, name: "15 دقيقة" }
+def _normalize_clinic_waiting_time(profile_obj: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        if not isinstance(profile_obj, dict):
+            return profile_obj
+        cwt = profile_obj.get("clinic_waiting_time")
+        if isinstance(cwt, dict):
+            # إن كان بالشكل القديم يحتوي value فقط، استبدله بالشكل الجديد المطلوب
+            if "value" in cwt and ("id" not in cwt and "name" not in cwt):
+                profile_obj["clinic_waiting_time"] = {"id": 3, "name": "15 دقيقة"}
+        return profile_obj
+    except Exception:
+        return profile_obj
 
 @app.get("/doctor/profile")
 @app.get("/doctor/profile.json")
@@ -297,10 +314,12 @@ async def post_doctor_profile_raw(request: Request):
                     prof = json.loads(prof_val)
                 except Exception:
                     prof = {}
-                prof_raw = prof_val
+                # طبّق التطبيع ثم أعد التسلسل
+                prof = _normalize_clinic_waiting_time(prof)
+                prof_raw = json.dumps(prof, ensure_ascii=False)
             elif isinstance(prof_val, dict):
-                prof = prof_val
-                prof_raw = json.dumps(prof_val, ensure_ascii=False)
+                prof = _normalize_clinic_waiting_time(prof_val)
+                prof_raw = json.dumps(prof, ensure_ascii=False)
             else:
                 prof = {}
                 prof_raw = "{}"
@@ -349,7 +368,7 @@ async def post_doctor_profile_raw(request: Request):
             if acct and not acct.doctor_id:
                 acct.doctor_id = row.id
                 db.commit()
-            return {"doctor_id": row.id, "phone_verification": "pending"}
+            return {"doctor_id": row.id, "phone_verification": "pending", "profile": prof}
         finally:
             db.close()
 
@@ -357,19 +376,50 @@ async def post_doctor_profile_raw(request: Request):
     db = SessionLocal()
     try:
         row = db.query(models.DoctorProfile).filter_by(slug="default").first()
+        # حاول تحويل النص إلى JSON وتطبيق التطبيع إن أمكن
+        normalized_text = text
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict):
+                obj = _normalize_clinic_waiting_time(obj)
+                normalized_text = json.dumps(obj, ensure_ascii=False)
+        except Exception:
+            pass
         if not row:
-            row = models.DoctorProfile(slug="default", raw_json=text)
+            row = models.DoctorProfile(slug="default", raw_json=normalized_text)
             db.add(row)
         else:
-            row.raw_json = text
+            row.raw_json = normalized_text
         db.commit()
-        return {"message": "تم"}
+        # إن كان النص JSON صالحًا، أعده أيضًا للعميل
+        try:
+            resp_obj = json.loads(normalized_text)
+        except Exception:
+            resp_obj = {"message": "Done"}
+        return {"message": "Done", "profile": resp_obj}
     except Exception:
         try:
             db.rollback()
         except Exception:
             pass
-        return Response(content=json.dumps({"message": "فشل"}, ensure_ascii=False), media_type="application/json", status_code=500)
+        return Response(content=json.dumps({"message": "Failed"}, ensure_ascii=False), media_type="application/json", status_code=500)
+    finally:
+        db.close()
+
+# جلب البروفايل المخزّن لطبيب عبر المعرّف كما هو (بدون أي تعديل/التفاف)
+@app.get("/doctor/profile/{doctor_id}")
+@app.get("/doctor/profile.json/{doctor_id}")
+def get_doctor_profile_by_id(doctor_id: int):
+    db = SessionLocal()
+    try:
+        r = db.query(models.Doctor).filter_by(id=doctor_id).first()
+        if not r:
+            return Response(content=json.dumps({"error": {"code": "not_found", "message": "Doctor not found"}}, ensure_ascii=False), media_type="application/json", status_code=404)
+        try:
+            obj = json.loads(r.profile_json) if r.profile_json else {}
+        except Exception:
+            obj = {}
+        return obj
     finally:
         db.close()
 
