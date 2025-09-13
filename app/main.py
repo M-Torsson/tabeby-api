@@ -277,8 +277,8 @@ def _normalize_clinic_waiting_time(profile_obj: Dict[str, Any]) -> Dict[str, Any
 @app.get("/doctor/profile.json")
 def get_doctor_profile_raw():
     """
-    يُعيد ملف JSON المخزَّن كما هو من جدول DoctorProfile (slug=default).
-    في حال عدم وجود صف سيتم إنشاؤه بالقيمة الافتراضية ثم إرجاعها.
+    يُعيد حالة نجاح/فشل للبروفايل المخزّن من جدول DoctorProfile (slug=default).
+    في حال عدم وجود صف سيتم إنشاؤه بالقيمة الافتراضية.
     """
     db = SessionLocal()
     try:
@@ -287,18 +287,14 @@ def get_doctor_profile_raw():
             row = models.DoctorProfile(slug="default", raw_json=RAW_DOCTOR_PROFILE_JSON)
             db.add(row)
             db.commit()
-        # حاول فك JSON وإرجاعه كما هو
+        # تحقق من صحة JSON المخزّن
         try:
-            obj = json.loads(row.raw_json) if row.raw_json else {}
+            json.loads(row.raw_json) if row.raw_json else {}
+            return {"status": "success", "message": "Profile exists and valid"}
         except Exception:
-            return Response(
-                content=json.dumps({"خطأ": "تعذّر قراءة ملف البروفايل المخزّن"}, ensure_ascii=False),
-                media_type="application/json",
-                status_code=500,
-            )
-        return obj
+            return {"status": "fail", "message": "Profile exists but invalid"}
     except Exception:
-        return Response(content=json.dumps({"خطأ": "فشل في جلب البروفايل"}, ensure_ascii=False), media_type="application/json", status_code=500)
+        return {"status": "fail", "message": "Failed to access profile"}
     finally:
         db.close()
     
