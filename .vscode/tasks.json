@@ -21,6 +21,20 @@
 				"\nfrom fastapi.testclient import TestClient\nfrom app.main import app\nimport json\n\nc = TestClient(app)\n\n# New contract: create doctor via POST /doctor/profile with phone + json_profile\npayload = {\n  \"phone\": \"+46765588441\",\n  \"json_profile\": {\n    \"general_info\": {\n      \"doctor_name\": \"Dr. Test\",\n      \"email_address\": \"drtest@example.com\",\n      \"doctor_phone_number\": \"+46765588441\",\n      \"experience_years\": \"5\",\n      \"clinic_states\": \"Stockholm\",\n      \"accountStatus\": True,\n      \"number_patients_treated\": \"10\"\n    },\n    \"specializations\": [\"General\"],\n    \"clinic_phone_number\": {\"phone_1\": \"\", \"phone_2\": \"\", \"phone_3\": \"\"},\n    \"clinic_location\": {\"latitude\": \"59.3\", \"longitude\": \"18.0\", \"place_name\": \"Clinic\"}\n  }\n}\n\nr = c.post('/doctor/profile', json=payload)\nprint('CREATE', r.status_code, r.json())\n\n# Verify created row visible in list\nr2 = c.get('/api/doctors')\nprint('LIST', r2.status_code, len(r2.json().get('items', [])))\nprint(r2.json()['items'][-1])\n\nPY"
 			],
 			"group": "build"
+		},
+		{
+			"label": "quick-post-doctor-profile",
+			"type": "shell",
+			"command": "F:/tabeby-api/.venv/Scripts/python.exe",
+			"args": [
+				"- <<",
+				"'PY'",
+				"\nfrom fastapi.testclient import TestClient\nfrom app.main import app\n\nc = TestClient(app)\n\npayload = {\n  \"phone\": \"+46765588441\",\n  \"json_profile\": {\"general_info\": {\"doctor_name\": \"Dr. Test\"}}\n}\n\nr = c.post('/doctor/profile', json=payload)\nprint('STATUS', r.status_code)\nprint('BODY', r.json())\n\nPY"
+			],
+			"problemMatcher": [
+				"$python"
+			],
+			"group": "build"
 		}
 	]
 }

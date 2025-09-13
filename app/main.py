@@ -374,7 +374,8 @@ async def post_doctor_profile_raw(request: Request):
             if acct and not acct.doctor_id:
                 acct.doctor_id = row.id
                 db.commit()
-            return {"doctor_id": row.id, "phone_verification": "pending", "profile": prof}
+            # إرجاع رسالة نجاح فقط بحسب المتطلب الجديد
+            return {"message": "success"}
         finally:
             db.close()
 
@@ -397,18 +398,15 @@ async def post_doctor_profile_raw(request: Request):
         else:
             row.raw_json = normalized_text
         db.commit()
-        # إن كان النص JSON صالحًا، أعده أيضًا للعميل
-        try:
-            resp_obj = json.loads(normalized_text)
-        except Exception:
-            resp_obj = {"message": "Done"}
-        return {"message": "Done", "profile": resp_obj}
+        # المتطلب الجديد: لا تُرجع محتوى الملف، فقط رسالة نجاح
+        return {"message": "success"}
     except Exception:
         try:
             db.rollback()
         except Exception:
             pass
-        return Response(content=json.dumps({"message": "Failed"}, ensure_ascii=False), media_type="application/json", status_code=500)
+        # في حال الفشل، أعد رسالة فشل فقط
+        return Response(content=json.dumps({"message": "fail"}, ensure_ascii=False), media_type="application/json", status_code=500)
     finally:
         db.close()
 
