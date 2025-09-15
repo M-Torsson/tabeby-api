@@ -447,58 +447,42 @@ async def create_doctor(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/clinics")
-def list_clinics(
-    q: Optional[str] = None,
-    state: Optional[str] = None,
-    page: int = 1,
-    pageSize: int = 20,
-    db: Session = Depends(get_db),
-):
+def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
     """
-    يُرجع قائمة العيادات مشتقة من جدول الأطباء وحقول profile_json.
-    - كل عنصر يحتوي: clinic_id, clinic_name, clinic_state, coordinates (latitude/longitude), doctors_count
-    - دعم بحث نصي بسيط في الاسم والولاية، مع ترقيم صفحات.
+    يُرجع جميع العيادات بنفس صيغة /api/clinics/brief بدون ترقيم صفحات:
+    [ { clinic_id, doctor_name, specializations } ]
+    يتطلب Doctor-Secret.
     """
-    page = max(1, page)
-    pageSize = max(1, min(pageSize, 100))
-
-    # اجلب الأطباء الذين لديهم profile_json لتستخرج clinic_id
-    rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).all()
-
-    clinics: Dict[int, Dict[str, Any]] = {}
+    rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).order_by(models.Doctor.id.asc()).all()
+    out: List[Dict[str, Any]] = []
     for r in rows:
-        cid = _extract_clinic_id_from_profile_json(r.profile_json)
+        try:
+            obj = json.loads(r.profile_json) if r.profile_json else {}
+        except Exception:
+            obj = {}
+        g = obj.get("general_info", {}) if isinstance(obj, dict) else {}
+        cid = _safe_int(g.get("clinic_id")) if isinstance(g, dict) else None
         if cid is None:
             continue
-        entry = clinics.get(cid)
-        if not entry:
-            name = _extract_clinic_name_from_profile_json(r.profile_json) or r.clinic_state or "Clinic"
-            loc = _extract_location_from_profile_json(r.profile_json)
-            clinics[cid] = {
-                "clinic_id": cid,
-                "clinic_name": name,
-                "clinic_state": r.clinic_state,
-                "location": loc,
-                "doctors_count": 1,
-            }
-        else:
-            entry["doctors_count"] += 1
-
-    items = list(clinics.values())
-    # فلاتر
-    if q:
-        ql = q.strip().lower()
-        items = [it for it in items if (it.get("clinic_name") or "").lower().find(ql) != -1 or (it.get("clinic_state") or "").lower().find(ql) != -1]
-    if state:
-        items = [it for it in items if (it.get("clinic_state") or "") == state]
-
-    total = len(items)
-    items.sort(key=lambda x: (x.get("clinic_name") or ""))
-    start = (page - 1) * pageSize
-    end = start + pageSize
-    items = items[start:end]
-
-    return {"items": items, "total": total, "page": page, "pageSize": pageSize}
+        dname = g.get("doctor_name") if isinstance(g, dict) else None
+        if not dname:
+            dname = r.name
+        specs_raw = obj.get("specializations") if isinstance(obj, dict) else None
+        specs: List[str] = []
+        if isinstance(specs_raw, list):
+            for s in specs_raw:
+                if isinstance(s, dict):
+                    nm = s.get("name")
+                    if isinstance(nm, str) and nm.strip():
+                        specs.append(nm.strip())
+                else:
+                    specs.append(str(s))
+        out.append({
+            "clinic_id": cid,
+            "doctor_name": dname,
+            "specializations": specs,
+        })
+    return out
 
 
 @router.get("/clinics/brief")
