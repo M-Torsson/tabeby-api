@@ -99,6 +99,36 @@ def _extract_clinic_id_from_profile_json(profile_json: str | None) -> Optional[i
         return None
     return None
 
+def _extract_clinic_name_from_profile_json(profile_json: str | None) -> Optional[str]:
+    if not profile_json:
+        return None
+    try:
+        obj = json.loads(profile_json)
+        if isinstance(obj, dict):
+            g = obj.get("general_info", {})
+            if isinstance(g, dict):
+                name = g.get("clinic_name")
+                if isinstance(name, str) and name.strip():
+                    return name.strip()
+    except Exception:
+        return None
+    return None
+
+def _extract_location_from_profile_json(profile_json: str | None) -> Dict[str, Optional[str]]:
+    lat = lon = place = None
+    if profile_json:
+        try:
+            obj = json.loads(profile_json)
+            if isinstance(obj, dict):
+                loc = obj.get("clinic_location")
+                if isinstance(loc, dict):
+                    lat = (loc.get("latitude") if isinstance(loc.get("latitude"), str) else str(loc.get("latitude"))) if loc.get("latitude") is not None else None
+                    lon = (loc.get("longitude") if isinstance(loc.get("longitude"), str) else str(loc.get("longitude"))) if loc.get("longitude") is not None else None
+                    place = loc.get("place_name") if isinstance(loc.get("place_name"), str) else None
+        except Exception:
+            pass
+    return {"latitude": lat, "longitude": lon, "place_name": place}
+
 
 def _denormalize_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     g = profile.get("general_info", {}) if isinstance(profile.get("general_info"), dict) else {}
@@ -414,3 +444,58 @@ async def create_doctor(request: Request, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(row)
     return {"id": row.id}
+
+
+@router.get("/clinics")
+def list_clinics(
+    q: Optional[str] = None,
+    state: Optional[str] = None,
+    page: int = 1,
+    pageSize: int = 20,
+    db: Session = Depends(get_db),
+):
+    """
+    يُرجع قائمة العيادات مشتقة من جدول الأطباء وحقول profile_json.
+    - كل عنصر يحتوي: clinic_id, clinic_name, clinic_state, coordinates (latitude/longitude), doctors_count
+    - دعم بحث نصي بسيط في الاسم والولاية، مع ترقيم صفحات.
+    """
+    page = max(1, page)
+    pageSize = max(1, min(pageSize, 100))
+
+    # اجلب الأطباء الذين لديهم profile_json لتستخرج clinic_id
+    rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).all()
+
+    clinics: Dict[int, Dict[str, Any]] = {}
+    for r in rows:
+        cid = _extract_clinic_id_from_profile_json(r.profile_json)
+        if cid is None:
+            continue
+        entry = clinics.get(cid)
+        if not entry:
+            name = _extract_clinic_name_from_profile_json(r.profile_json) or r.clinic_state or "Clinic"
+            loc = _extract_location_from_profile_json(r.profile_json)
+            clinics[cid] = {
+                "clinic_id": cid,
+                "clinic_name": name,
+                "clinic_state": r.clinic_state,
+                "location": loc,
+                "doctors_count": 1,
+            }
+        else:
+            entry["doctors_count"] += 1
+
+    items = list(clinics.values())
+    # فلاتر
+    if q:
+        ql = q.strip().lower()
+        items = [it for it in items if (it.get("clinic_name") or "").lower().find(ql) != -1 or (it.get("clinic_state") or "").lower().find(ql) != -1]
+    if state:
+        items = [it for it in items if (it.get("clinic_state") or "") == state]
+
+    total = len(items)
+    items.sort(key=lambda x: (x.get("clinic_name") or ""))
+    start = (page - 1) * pageSize
+    end = start + pageSize
+    items = items[start:end]
+
+    return {"items": items, "total": total, "page": page, "pageSize": pageSize}
