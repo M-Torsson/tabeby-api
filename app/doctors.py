@@ -499,3 +499,45 @@ def list_clinics(
     items = items[start:end]
 
     return {"items": items, "total": total, "page": page, "pageSize": pageSize}
+
+
+@router.get("/clinics/brief")
+def list_clinics_brief(secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
+    """
+    يُرجع قائمة مختصرة تتضمن فقط:
+    - clinic_id
+    - doctor_name
+    - specializations (قائمة أسماء)
+
+    يتطلب الهيدر Doctor-Secret.
+    """
+    rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).order_by(models.Doctor.id.asc()).all()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        try:
+            obj = json.loads(r.profile_json) if r.profile_json else {}
+        except Exception:
+            obj = {}
+        g = obj.get("general_info", {}) if isinstance(obj, dict) else {}
+        cid = _safe_int(g.get("clinic_id")) if isinstance(g, dict) else None
+        if cid is None:
+            continue
+        dname = g.get("doctor_name") if isinstance(g, dict) else None
+        if not dname:
+            dname = r.name
+        specs_raw = obj.get("specializations") if isinstance(obj, dict) else None
+        specs: List[str] = []
+        if isinstance(specs_raw, list):
+            for s in specs_raw:
+                if isinstance(s, dict):
+                    nm = s.get("name")
+                    if isinstance(nm, str) and nm.strip():
+                        specs.append(nm.strip())
+                else:
+                    specs.append(str(s))
+        out.append({
+            "clinic_id": cid,
+            "doctor_name": dname,
+            "specializations": specs,
+        })
+    return out
