@@ -10,6 +10,7 @@ from .staff_router import router as staff_rbac_router
 from .activities import router as activities_router
 from .departments import router as departments_router
 from .doctors import router as doctors_router
+from .ads import router as ads_router
 from fastapi.middleware.cors import CORSMiddleware
 from .firebase_init import ensure_firebase_initialized
 from .doctors import _denormalize_profile, _to_ascii_digits, _safe_int  # reuse helpers
@@ -70,6 +71,9 @@ def get_db():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+# include ads router
+app.include_router(ads_router)
 
 # Firebase quick check route
 @app.get("/_firebase_check")

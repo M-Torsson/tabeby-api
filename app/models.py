@@ -216,3 +216,20 @@ class Doctor(Base):
     profile_json = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# ===== Ads (raw JSON payload per clinic) =====
+
+class Ad(Base):
+    __tablename__ = "ads"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    clinic_id = Column(Integer, index=True, nullable=False)
+    # store the full ad JSON (normalized) exactly as sent by client
+    payload_json = Column(Text, nullable=False)
+    ad_status = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # helpful index
+    __table_args__ = (
+        Index("ix_ads_clinic_id_created", "clinic_id", "created_at"),
+    )
