@@ -366,47 +366,6 @@ def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret)
     if isinstance(profile, dict):
         profile_out = dict(profile)
     profile_out["account"] = acc
-    # اشتق الإضافات من specializations إن وُجد تخصص رئيسي واحد (أسنان/تجميل)
-    try:
-        specs_raw = profile_out.get("specializations")
-        specs_full: List[Dict[str, Any]] = []
-        if isinstance(specs_raw, list):
-            for s in specs_raw:
-                if isinstance(s, dict):
-                    nm = s.get("name")
-                    if isinstance(nm, str) and nm.strip():
-                        specs_full.append({"id": _safe_int(s.get("id")), "name": nm.strip()})
-                else:
-                    nm = str(s)
-                    specs_full.append({"id": None, "name": nm})
-
-        def _norm(x: str) -> str:
-            return (x or "").strip()
-
-        dentistry_mains = {"طب اسنان", "طب أسنان", "طب الأسنان"}
-        plastic_mains = {"جراحة تجميلية"}
-        has_d = any(_norm(s.get("name")) in dentistry_mains for s in specs_full)
-        has_p = any(_norm(s.get("name")) in plastic_mains for s in specs_full)
-        if specs_full and (has_d ^ has_p):
-            mains = dentistry_mains if has_d else plastic_mains
-            extras = [s for s in specs_full if _norm(s.get("name")) not in mains]
-
-            def _merge(existing: List[Dict[str, Any]] | None, derived: List[Dict[str, Any]]):
-                base = list(existing) if isinstance(existing, list) else []
-                seen = {(_norm(x.get("name"))): True for x in base}
-                for d in derived:
-                    key = _norm(d.get("name"))
-                    if key and key not in seen:
-                        base.append({"id": d.get("id"), "name": key})
-                        seen[key] = True
-                return base
-
-            if has_d:
-                profile_out["dents_addition"] = _merge(profile_out.get("dents_addition"), extras)
-            elif has_p:
-                profile_out["plastic_addition"] = _merge(profile_out.get("plastic_addition"), extras)
-    except Exception:
-        pass
     return {"id": r.id, "profile": profile_out}
 
 
@@ -433,47 +392,6 @@ def get_doctor_by_clinic_id(clinic_id: int, secret_ok: None = Depends(require_pr
     acc = {"email": r.email, "phone": r.phone, "status": r.status}
     out = dict(profile) if isinstance(profile, dict) else {}
     out["account"] = acc
-    # اشتق الإضافات من specializations كما في get_doctor
-    try:
-        specs_raw = out.get("specializations")
-        specs_full: List[Dict[str, Any]] = []
-        if isinstance(specs_raw, list):
-            for s in specs_raw:
-                if isinstance(s, dict):
-                    nm = s.get("name")
-                    if isinstance(nm, str) and nm.strip():
-                        specs_full.append({"id": _safe_int(s.get("id")), "name": nm.strip()})
-                else:
-                    nm = str(s)
-                    specs_full.append({"id": None, "name": nm})
-
-        def _norm(x: str) -> str:
-            return (x or "").strip()
-
-        dentistry_mains = {"طب اسنان", "طب أسنان", "طب الأسنان"}
-        plastic_mains = {"جراحة تجميلية"}
-        has_d = any(_norm(s.get("name")) in dentistry_mains for s in specs_full)
-        has_p = any(_norm(s.get("name")) in plastic_mains for s in specs_full)
-        if specs_full and (has_d ^ has_p):
-            mains = dentistry_mains if has_d else plastic_mains
-            extras = [s for s in specs_full if _norm(s.get("name")) not in mains]
-
-            def _merge(existing: List[Dict[str, Any]] | None, derived: List[Dict[str, Any]]):
-                base = list(existing) if isinstance(existing, list) else []
-                seen = {(_norm(x.get("name"))): True for x in base}
-                for d in derived:
-                    key = _norm(d.get("name"))
-                    if key and key not in seen:
-                        base.append({"id": d.get("id"), "name": key})
-                        seen[key] = True
-                return base
-
-            if has_d:
-                out["dents_addition"] = _merge(out.get("dents_addition"), extras)
-            elif has_p:
-                out["plastic_addition"] = _merge(out.get("plastic_addition"), extras)
-    except Exception:
-        pass
     return {"id": r.id, "profile": out}
 
 
@@ -496,47 +414,6 @@ def get_doctor_profile_api(doctor_id: int, secret_ok: None = Depends(require_pro
     if isinstance(profile, dict):
         profile_out = dict(profile)
     profile_out["account"] = acc
-    # اشتق الإضافات من specializations كما في get_doctor
-    try:
-        specs_raw = profile_out.get("specializations")
-        specs_full: List[Dict[str, Any]] = []
-        if isinstance(specs_raw, list):
-            for s in specs_raw:
-                if isinstance(s, dict):
-                    nm = s.get("name")
-                    if isinstance(nm, str) and nm.strip():
-                        specs_full.append({"id": _safe_int(s.get("id")), "name": nm.strip()})
-                else:
-                    nm = str(s)
-                    specs_full.append({"id": None, "name": nm})
-
-        def _norm(x: str) -> str:
-            return (x or "").strip()
-
-        dentistry_mains = {"طب اسنان", "طب أسنان", "طب الأسنان"}
-        plastic_mains = {"جراحة تجميلية"}
-        has_d = any(_norm(s.get("name")) in dentistry_mains for s in specs_full)
-        has_p = any(_norm(s.get("name")) in plastic_mains for s in specs_full)
-        if specs_full and (has_d ^ has_p):
-            mains = dentistry_mains if has_d else plastic_mains
-            extras = [s for s in specs_full if _norm(s.get("name")) not in mains]
-
-            def _merge(existing: List[Dict[str, Any]] | None, derived: List[Dict[str, Any]]):
-                base = list(existing) if isinstance(existing, list) else []
-                seen = {(_norm(x.get("name"))): True for x in base}
-                for d in derived:
-                    key = _norm(d.get("name"))
-                    if key and key not in seen:
-                        base.append({"id": d.get("id"), "name": key})
-                        seen[key] = True
-                return base
-
-            if has_d:
-                profile_out["dents_addition"] = _merge(profile_out.get("dents_addition"), extras)
-            elif has_p:
-                profile_out["plastic_addition"] = _merge(profile_out.get("plastic_addition"), extras)
-    except Exception:
-        pass
     return {"id": r.id, "profile": profile_out}
 
 
