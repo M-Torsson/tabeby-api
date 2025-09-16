@@ -232,8 +232,17 @@ def list_doctors(
         query = query.order_by(models.Doctor.name.asc())
 
     rows = query.offset((page - 1) * pageSize).limit(pageSize).all()
-    items = [
-        {
+
+    def _norm_name(x: str) -> str:
+        return (x or "").strip()
+
+    dentistry_mains = {"طب اسنان", "طب أسنان", "طب الأسنان"}
+    plastic_mains = {"جراحة تجميلية"}
+
+    items: List[Dict[str, Any]] = []
+    for r in rows:
+        # base fields
+        item: Dict[str, Any] = {
             "id": r.id,
             "name": r.name,
             "image": r.image_url,
@@ -244,8 +253,95 @@ def list_doctors(
             "email": r.email,
             "phone": r.phone,
         }
-        for r in rows
-    ]
+
+        # Try parse specializations from profile_json
+        specs_full: List[Dict[str, Any]] = []
+        dents_add: List[Dict[str, Any]] = []
+        plastic_add: List[Dict[str, Any]] = []
+        if r.profile_json:
+            try:
+                pobj = json.loads(r.profile_json)
+            except Exception:
+                pobj = None
+            if isinstance(pobj, dict):
+                raw_specs = pobj.get("specializations")
+                if isinstance(raw_specs, list):
+                    for s in raw_specs:
+                        if isinstance(s, dict):
+                            nm = s.get("name")
+                            if isinstance(nm, str) and nm.strip():
+                                sid = _safe_int(s.get("id"))
+                                specs_full.append({"id": sid, "name": nm.strip()})
+                        else:
+                            nm = str(s)
+                            specs_full.append({"id": None, "name": nm})
+                # existing additions if present
+                dr = pobj.get("dents_addition")
+                if isinstance(dr, list):
+                    for it in dr:
+                        if isinstance(it, dict):
+                            nm = it.get("name")
+                            if isinstance(nm, str) and nm.strip():
+                                dents_add.append({"id": _safe_int(it.get("id")), "name": nm.strip()})
+                        else:
+                            nm = str(it)
+                            dents_add.append({"id": None, "name": nm})
+                pr = pobj.get("plastic_addition")
+                if isinstance(pr, list):
+                    for it in pr:
+                        if isinstance(it, dict):
+                            nm = it.get("name")
+                            if isinstance(nm, str) and nm.strip():
+                                plastic_add.append({"id": _safe_int(it.get("id")), "name": nm.strip()})
+                        else:
+                            nm = str(it)
+                            plastic_add.append({"id": None, "name": nm})
+
+        # Decide main category behavior
+        has_dentistry_main = any(_norm_name(s.get("name")) in dentistry_mains for s in specs_full)
+        has_plastic_main = any(_norm_name(s.get("name")) in plastic_mains for s in specs_full)
+
+        if specs_full:
+            mains: List[Dict[str, Any]] = []
+            extras: List[Dict[str, Any]] = []
+            for s in specs_full:
+                n = _norm_name(s.get("name"))
+                if n in dentistry_mains or n in plastic_mains:
+                    mains.append(s)
+                else:
+                    extras.append(s)
+
+            def _merge(existing: List[Dict[str, Any]], derived: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+                if not derived:
+                    return existing
+                seen = {(_norm_name(x.get("name"))): True for x in existing}
+                out = list(existing)
+                for d in derived:
+                    key = _norm_name(d.get("name"))
+                    if key and key not in seen:
+                        out.append({"id": d.get("id"), "name": key})
+                        seen[key] = True
+                return out
+
+            # Only transform when exactly one main category is present
+            if has_dentistry_main and not has_plastic_main:
+                item["specializations"] = [s for s in mains if _norm_name(s.get("name")) in dentistry_mains]
+                dents_add = _merge(dents_add, extras)
+                if dents_add:
+                    item["dents_addition"] = dents_add
+            elif has_plastic_main and not has_dentistry_main:
+                item["specializations"] = [s for s in mains if _norm_name(s.get("name")) in plastic_mains]
+                plastic_add = _merge(plastic_add, extras)
+                if plastic_add:
+                    item["plastic_addition"] = plastic_add
+            else:
+                # keep full list when no single main dominates
+                item["specializations"] = specs_full
+        else:
+            # ensure the key exists as empty list when no data
+            item["specializations"] = []
+
+        items.append(item)
     return {"items": items, "total": total, "page": page, "pageSize": pageSize}
 
 
