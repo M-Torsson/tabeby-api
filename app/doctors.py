@@ -452,7 +452,11 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
     يُرجع جميع العيادات بنفس صيغة /api/clinics/brief بدون ترقيم صفحات:
     [ { clinic_id, doctor_name, specializations, dents_addition?, plastic_addition? } ]
     يتطلب Doctor-Secret.
-    ملاحظة: يتم إرجاع مفاتيح dents_addition و plastic_addition فقط إذا كانت غير فارغة.
+        ملاحظة:
+        - يتم إرجاع مفاتيح dents_addition و plastic_addition فقط إذا كانت غير فارغة.
+        - إذا احتوت specializations على تخصص رئيسي واحد ("طب اسنان" أو "طب أسنان" أو "جراحة تجميلية")
+            بالإضافة إلى عناصر فرعية أخرى، فسيتم إبقاء التخصص الرئيسي داخل specializations ونقل العناصر الفرعية
+            إلى dents_addition أو plastic_addition على الترتيب (مع الدمج مع أي إضافات موجودة في البروفايل).
     """
     rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).order_by(models.Doctor.id.asc()).all()
     out: List[Dict[str, Any]] = []
@@ -482,7 +486,7 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
                     nm = str(s)
                     specs_full.append({"id": None, "name": nm})
 
-        # additions for dentistry / plastic
+        # additions for dentistry / plastic (from profile if present)
         dents_raw = obj.get("dents_addition") if isinstance(obj, dict) else None
         dents_add: List[Dict[str, Any]] = []
         if isinstance(dents_raw, list):
@@ -506,6 +510,49 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
                 else:
                     nm = str(it)
                     plastic_add.append({"id": None, "name": nm})
+
+        # derive additions from specializations if a main category is present
+        def _norm_name(x: str) -> str:
+            return (x or "").strip()
+
+        dentistry_mains = {"طب اسنان", "طب أسنان"}
+        plastic_mains = {"جراحة تجميلية"}
+
+        has_dentistry_main = any(_norm_name(s.get("name")) in dentistry_mains for s in specs_full)
+        has_plastic_main = any(_norm_name(s.get("name")) in plastic_mains for s in specs_full)
+
+        if specs_full:
+            mains: List[Dict[str, Any]] = []
+            extras: List[Dict[str, Any]] = []
+            for s in specs_full:
+                n = _norm_name(s.get("name"))
+                if n in dentistry_mains or n in plastic_mains:
+                    mains.append(s)
+                else:
+                    extras.append(s)
+
+            def _merge_additions(existing: List[Dict[str, Any]], derived: List[Dict[str, Any]]):
+                if not derived:
+                    return existing
+                seen = {(_norm_name(x.get("name"))): True for x in existing}
+                out = list(existing)
+                for d in derived:
+                    key = _norm_name(d.get("name"))
+                    if key and key not in seen:
+                        out.append({"id": d.get("id"), "name": key})
+                        seen[key] = True
+                return out
+
+            # Only transform when exactly one main category is present to avoid ambiguity
+            if has_dentistry_main and not has_plastic_main:
+                # keep only dentistry mains in specializations; move extras to dents_addition
+                specs_full = [s for s in mains if _norm_name(s.get("name")) in dentistry_mains]
+                dents_add = _merge_additions(dents_add, extras)
+            elif has_plastic_main and not has_dentistry_main:
+                # keep only plastic mains in specializations; move extras to plastic_addition
+                specs_full = [s for s in mains if _norm_name(s.get("name")) in plastic_mains]
+                plastic_add = _merge_additions(plastic_add, extras)
+            # else: keep specs_full as-is and do not derive additions to avoid misclassification
 
         item = {
             "clinic_id": cid,
