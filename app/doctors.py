@@ -529,6 +529,8 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
         item: Dict[str, Any] = {
             "clinic_id": cid,
             "doctor_name": dname,
+                # Force status to active in clinics listing per request
+                "status": "active",
         }
         if img_url:
             item["profile_image_URL"] = img_url
