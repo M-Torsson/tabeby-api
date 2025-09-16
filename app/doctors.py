@@ -449,14 +449,13 @@ async def create_doctor(request: Request, db: Session = Depends(get_db)):
 @router.get("/clinics")
 def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
     """
-    يُرجع جميع العيادات بنفس صيغة /api/clinics/brief بدون ترقيم صفحات:
-    [ { clinic_id, doctor_name, specializations, dents_addition?, plastic_addition? } ]
+    يُرجع جميع العيادات بدون ترقيم صفحات:
+    [ { clinic_id, doctor_name, profile_image_URL?, specializations } ]
     يتطلب Doctor-Secret.
-        ملاحظة:
-        - يتم إرجاع مفاتيح dents_addition و plastic_addition فقط إذا كانت غير فارغة.
-        - إذا احتوت specializations على تخصص رئيسي واحد ("طب اسنان" أو "طب أسنان" أو "جراحة تجميلية")
-            بالإضافة إلى عناصر فرعية أخرى، فسيتم إبقاء التخصص الرئيسي داخل specializations ونقل العناصر الفرعية
-            إلى dents_addition أو plastic_addition على الترتيب (مع الدمج مع أي إضافات موجودة في البروفايل).
+    ملاحظة:
+    - لا تُعاد أي مفاتيح إضافية (لا dents_addition ولا plastic_addition).
+    - إذا احتوت specializations على تخصص رئيسي واحد ("طب اسنان" أو "طب أسنان" أو "جراحة تجميلية")
+      بالإضافة إلى عناصر فرعية أخرى، فسيتم إبقاء التخصص الرئيسي فقط داخل specializations وإسقاط بقية العناصر.
     """
     rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).order_by(models.Doctor.id.asc()).all()
     out: List[Dict[str, Any]] = []
@@ -472,6 +471,20 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
         dname = g.get("doctor_name") if isinstance(g, dict) else None
         if not dname:
             dname = r.name
+        # try obtain image url from denormalized column or profile JSON
+        img_url: Optional[str] = r.image_url or None
+        if not img_url and isinstance(obj, dict):
+            def _pick_url(d: Dict[str, Any]) -> Optional[str]:
+                for k in ("profile_image_URL", "profileImageUrl", "image_url", "imageUrl"):
+                    v = d.get(k)
+                    if isinstance(v, str) and v.strip():
+                        return v.strip()
+                return None
+            img_url = _pick_url(obj)
+            if not img_url:
+                gg = obj.get("general_info")
+                if isinstance(gg, dict):
+                    img_url = _pick_url(gg)
         # specializations with ids if available
         specs_raw = obj.get("specializations") if isinstance(obj, dict) else None
         specs_full: List[Dict[str, Any]] = []
@@ -486,30 +499,7 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
                     nm = str(s)
                     specs_full.append({"id": None, "name": nm})
 
-        # additions for dentistry / plastic (from profile if present)
-        dents_raw = obj.get("dents_addition") if isinstance(obj, dict) else None
-        dents_add: List[Dict[str, Any]] = []
-        if isinstance(dents_raw, list):
-            for it in dents_raw:
-                if isinstance(it, dict):
-                    nm = it.get("name")
-                    if isinstance(nm, str) and nm.strip():
-                        dents_add.append({"id": _safe_int(it.get("id")), "name": nm.strip()})
-                else:
-                    nm = str(it)
-                    dents_add.append({"id": None, "name": nm})
-
-        plastic_raw = obj.get("plastic_addition") if isinstance(obj, dict) else None
-        plastic_add: List[Dict[str, Any]] = []
-        if isinstance(plastic_raw, list):
-            for it in plastic_raw:
-                if isinstance(it, dict):
-                    nm = it.get("name")
-                    if isinstance(nm, str) and nm.strip():
-                        plastic_add.append({"id": _safe_int(it.get("id")), "name": nm.strip()})
-                else:
-                    nm = str(it)
-                    plastic_add.append({"id": None, "name": nm})
+        # (no additions returned in this endpoint)
 
         # derive additions from specializations if a main category is present
         def _norm_name(x: str) -> str:
@@ -523,49 +513,26 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
 
         if specs_full:
             mains: List[Dict[str, Any]] = []
-            extras: List[Dict[str, Any]] = []
             for s in specs_full:
                 n = _norm_name(s.get("name"))
                 if n in dentistry_mains or n in plastic_mains:
                     mains.append(s)
-                else:
-                    extras.append(s)
-
-            def _merge_additions(existing: List[Dict[str, Any]], derived: List[Dict[str, Any]]):
-                if not derived:
-                    return existing
-                seen = {(_norm_name(x.get("name"))): True for x in existing}
-                out = list(existing)
-                for d in derived:
-                    key = _norm_name(d.get("name"))
-                    if key and key not in seen:
-                        out.append({"id": d.get("id"), "name": key})
-                        seen[key] = True
-                return out
 
             # Only transform when exactly one main category is present to avoid ambiguity
             if has_dentistry_main and not has_plastic_main:
-                # keep only dentistry mains in specializations; move extras to dents_addition
                 specs_full = [s for s in mains if _norm_name(s.get("name")) in dentistry_mains]
-                dents_add = _merge_additions(dents_add, extras)
             elif has_plastic_main and not has_dentistry_main:
-                # keep only plastic mains in specializations; move extras to plastic_addition
                 specs_full = [s for s in mains if _norm_name(s.get("name")) in plastic_mains]
-                plastic_add = _merge_additions(plastic_add, extras)
-            # else: keep specs_full as-is and do not derive additions to avoid misclassification
+            # else: keep specs_full as-is
 
         # Build item in required key order
         item: Dict[str, Any] = {
             "clinic_id": cid,
             "doctor_name": dname,
         }
-        if getattr(r, "image_url", None):
-            item["profile_image_URL"] = r.image_url
+        if img_url:
+            item["profile_image_URL"] = img_url
         item["specializations"] = specs_full
-        if dents_add:
-            item["dents_addition"] = dents_add
-        if plastic_add:
-            item["plastic_addition"] = plastic_add
         out.append(item)
     return out
 
