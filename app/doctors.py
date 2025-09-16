@@ -554,11 +554,14 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
                 plastic_add = _merge_additions(plastic_add, extras)
             # else: keep specs_full as-is and do not derive additions to avoid misclassification
 
-        item = {
+        # Build item in required key order
+        item: Dict[str, Any] = {
             "clinic_id": cid,
             "doctor_name": dname,
-            "specializations": specs_full,
         }
+        if getattr(r, "image_url", None):
+            item["profile_image_URL"] = r.image_url
+        item["specializations"] = specs_full
         if dents_add:
             item["dents_addition"] = dents_add
         if plastic_add:
