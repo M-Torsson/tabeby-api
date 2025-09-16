@@ -467,20 +467,55 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
         dname = g.get("doctor_name") if isinstance(g, dict) else None
         if not dname:
             dname = r.name
+        # specializations with ids if available
         specs_raw = obj.get("specializations") if isinstance(obj, dict) else None
-        specs: List[str] = []
+        specs_names: List[str] = []
+        specs_full: List[Dict[str, Any]] = []
         if isinstance(specs_raw, list):
             for s in specs_raw:
                 if isinstance(s, dict):
                     nm = s.get("name")
                     if isinstance(nm, str) and nm.strip():
-                        specs.append(nm.strip())
+                        specs_names.append(nm.strip())
+                        sid = _safe_int(s.get("id"))
+                        specs_full.append({"id": sid, "name": nm.strip()})
                 else:
-                    specs.append(str(s))
+                    nm = str(s)
+                    specs_names.append(nm)
+                    specs_full.append({"id": None, "name": nm})
+
+        # additions for dentistry / plastic
+        dents_raw = obj.get("dents_addition") if isinstance(obj, dict) else None
+        dents_add: List[Dict[str, Any]] = []
+        if isinstance(dents_raw, list):
+            for it in dents_raw:
+                if isinstance(it, dict):
+                    nm = it.get("name")
+                    if isinstance(nm, str) and nm.strip():
+                        dents_add.append({"id": _safe_int(it.get("id")), "name": nm.strip()})
+                else:
+                    nm = str(it)
+                    dents_add.append({"id": None, "name": nm})
+
+        plastic_raw = obj.get("plastic_addition") if isinstance(obj, dict) else None
+        plastic_add: List[Dict[str, Any]] = []
+        if isinstance(plastic_raw, list):
+            for it in plastic_raw:
+                if isinstance(it, dict):
+                    nm = it.get("name")
+                    if isinstance(nm, str) and nm.strip():
+                        plastic_add.append({"id": _safe_int(it.get("id")), "name": nm.strip()})
+                else:
+                    nm = str(it)
+                    plastic_add.append({"id": None, "name": nm})
+
         out.append({
             "clinic_id": cid,
             "doctor_name": dname,
-            "specializations": specs,
+            "specializations": specs_names,
+            "specializations_full": specs_full,
+            "dents_addition": dents_add,
+            "plastic_addition": plastic_add,
         })
     return out
 
