@@ -450,8 +450,9 @@ async def create_doctor(request: Request, db: Session = Depends(get_db)):
 def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
     """
     يُرجع جميع العيادات بنفس صيغة /api/clinics/brief بدون ترقيم صفحات:
-    [ { clinic_id, doctor_name, specializations } ]
+    [ { clinic_id, doctor_name, specializations, dents_addition?, plastic_addition? } ]
     يتطلب Doctor-Secret.
+    ملاحظة: يتم إرجاع مفاتيح dents_addition و plastic_addition فقط إذا كانت غير فارغة.
     """
     rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).order_by(models.Doctor.id.asc()).all()
     out: List[Dict[str, Any]] = []
@@ -469,19 +470,16 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
             dname = r.name
         # specializations with ids if available
         specs_raw = obj.get("specializations") if isinstance(obj, dict) else None
-        specs_names: List[str] = []
         specs_full: List[Dict[str, Any]] = []
         if isinstance(specs_raw, list):
             for s in specs_raw:
                 if isinstance(s, dict):
                     nm = s.get("name")
                     if isinstance(nm, str) and nm.strip():
-                        specs_names.append(nm.strip())
                         sid = _safe_int(s.get("id"))
                         specs_full.append({"id": sid, "name": nm.strip()})
                 else:
                     nm = str(s)
-                    specs_names.append(nm)
                     specs_full.append({"id": None, "name": nm})
 
         # additions for dentistry / plastic
@@ -509,14 +507,16 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
                     nm = str(it)
                     plastic_add.append({"id": None, "name": nm})
 
-        out.append({
+        item = {
             "clinic_id": cid,
             "doctor_name": dname,
-            "specializations": specs_names,
-            "specializations_full": specs_full,
-            "dents_addition": dents_add,
-            "plastic_addition": plastic_add,
-        })
+            "specializations": specs_full,
+        }
+        if dents_add:
+            item["dents_addition"] = dents_add
+        if plastic_add:
+            item["plastic_addition"] = plastic_add
+        out.append(item)
     return out
 
 

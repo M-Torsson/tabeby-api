@@ -35,6 +35,17 @@
 				"$python"
 			],
 			"group": "build"
+		},
+		{
+			"label": "quick-clinics-endpoint-check",
+			"type": "shell",
+			"command": "F:/tabeby-api/.venv/Scripts/python.exe",
+			"args": [
+				"- <<",
+				"'PY'",
+				"\nfrom fastapi.testclient import TestClient\nfrom app.main import app\nimport os\n\n# set secret in env for the test client to pass require_profile_secret\nos.environ['DOCTOR_PROFILE_SECRET'] = os.environ.get('DOCTOR_PROFILE_SECRET','test-secret')\n\nc = TestClient(app)\n\nheaders={'Doctor-Secret': os.environ['DOCTOR_PROFILE_SECRET']}\n\nr = c.get('/api/clinics', headers=headers)\nprint('STATUS', r.status_code)\nitems = r.json()\nprint('LEN', len(items))\n# print first 2 items for inspection\nfor it in items[:2]:\n    print(it)\n\nPY"
+			],
+			"group": "build"
 		}
 	]
 }
