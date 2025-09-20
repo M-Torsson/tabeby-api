@@ -640,7 +640,8 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
 @router.post("/secretary_code_generator", response_model=schemas.SecretaryCodeResponse)
 def create_secretary_code(
     request: schemas.SecretaryCodeRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
 ):
     """
     Generate a unique 6-digit secretary ID and save secretary information to database.
