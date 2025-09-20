@@ -284,3 +284,17 @@ class SecretaryCodeRequest(BaseModel):
 class SecretaryCodeResponse(BaseModel):
     secretary_id: int
     result: str = "successfuly"
+
+
+# ===== Secretary Login Schemas =====
+
+class SecretaryLoginRequest(BaseModel):
+    secretary_code: int
+
+class SecretaryLoginResponse(BaseModel):
+    status: str = "successfuly"
+    clinic_id: int
+    secretary_id: str  # format: "S-{clinic_id}"
+    doctor_name: str
+    secretary_name: str
+    created_date: str
