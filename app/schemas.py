@@ -271,3 +271,16 @@ class DepartmentStats(BaseModel):
     total_staff: int
     total_services: int
     growth_rate: float
+
+
+# ===== Secretary Code Generator Schemas =====
+
+class SecretaryCodeRequest(BaseModel):
+    clinic_id: int
+    doctor_name: str
+    secretary_name: str
+    created_date: str  # format: "10/07/2025 10:00 am"
+
+class SecretaryCodeResponse(BaseModel):
+    secretary_id: int
+    result: str = "successfuly"

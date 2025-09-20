@@ -217,6 +217,20 @@ class Doctor(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+# ===== Secretaries (for secretary code generation) =====
+
+class Secretary(Base):
+    __tablename__ = "secretaries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    secretary_id = Column(Integer, unique=True, index=True, nullable=False)  # 6-digit generated code
+    clinic_id = Column(Integer, index=True, nullable=False)
+    doctor_name = Column(String, nullable=False)
+    secretary_name = Column(String, nullable=False)
+    created_date = Column(String, nullable=False)  # storing as string as per API spec
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 # ===== Ads (raw JSON payload per clinic) =====
 
 class Ad(Base):

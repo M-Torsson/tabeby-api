@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import re
 import os
+import random
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -11,6 +12,7 @@ from sqlalchemy import func
 
 from .database import SessionLocal
 from . import models
+from . import schemas
 from .auth import get_current_admin  # kept for potential reuse, but not required for public endpoints
 
 router = APIRouter(prefix="/api", tags=["Doctors"])
@@ -633,6 +635,72 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
         item["specializations"] = specs_full
         out.append(item)
     return out
+
+
+@router.post("/secretary_code_generator", response_model=schemas.SecretaryCodeResponse)
+def create_secretary_code(
+    request: schemas.SecretaryCodeRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate a unique 6-digit secretary ID and save secretary information to database.
+    
+    This endpoint creates a new secretary record with a unique 6-digit code that
+    can be used for secretary identification within the clinic system.
+    """
+    
+    def generate_unique_secretary_id() -> int:
+        """Generate a unique 6-digit secretary ID that doesn't exist in the database."""
+        max_attempts = 100  # Prevent infinite loop in unlikely case
+        
+        for _ in range(max_attempts):
+            # Generate 6-digit number (100000 to 999999)
+            secretary_id = random.randint(100000, 999999)
+            
+            # Check if this ID already exists
+            existing = db.query(models.Secretary).filter(
+                models.Secretary.secretary_id == secretary_id
+            ).first()
+            
+            if not existing:
+                return secretary_id
+        
+        # If we couldn't generate a unique ID after max_attempts, raise an error
+        raise HTTPException(
+            status_code=500, 
+            detail="Unable to generate unique secretary ID. Please try again."
+        )
+    
+    try:
+        # Generate unique secretary ID
+        secretary_id = generate_unique_secretary_id()
+        
+        # Create new secretary record
+        new_secretary = models.Secretary(
+            secretary_id=secretary_id,
+            clinic_id=request.clinic_id,
+            doctor_name=request.doctor_name,
+            secretary_name=request.secretary_name,
+            created_date=request.created_date
+        )
+        
+        # Add to database
+        db.add(new_secretary)
+        db.commit()
+        db.refresh(new_secretary)
+        
+        # Return response
+        return schemas.SecretaryCodeResponse(
+            secretary_id=secretary_id,
+            result="successfuly"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create secretary code: {str(e)}"
+        )
 
 
 
