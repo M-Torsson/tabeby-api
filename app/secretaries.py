@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .database import SessionLocal
 from . import models
 from . import schemas
+from .doctors import require_profile_secret
 
 router = APIRouter(prefix="/api", tags=["Secretaries"])
 
@@ -28,7 +29,8 @@ def error(code: str, message: str, status: int = 400):
 @router.post("/secretary_login_code", response_model=schemas.SecretaryLoginResponse)
 def secretary_login_code(
     request: schemas.SecretaryLoginRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
 ):
     """
     Secretary login using their 6-digit code.
