@@ -298,3 +298,16 @@ class SecretaryLoginResponse(BaseModel):
     doctor_name: str
     secretary_name: str
     created_date: str
+
+
+# ===== Patient User Registration Schemas =====
+
+class PatientUserRegisterRequest(BaseModel):
+    user_uid: str
+    user_role: str  # must be 'patient'
+    phone_number: str
+
+class PatientUserRegisterResponse(BaseModel):
+    message: str = "ok"
+    user_server_id: str  # formatted P-<id>
+    user_role: str
