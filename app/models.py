@@ -247,3 +247,17 @@ class Ad(Base):
     __table_args__ = (
         Index("ix_ads_clinic_id_created", "clinic_id", "created_at"),
     )
+
+# ===== Booking Tables (per clinic, days JSON) =====
+
+class BookingTable(Base):
+    __tablename__ = "booking_tables"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    clinic_id = Column(Integer, index=True, nullable=False)
+    days_json = Column(Text, nullable=False)  # full JSON structure of days
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (
+        Index("ix_booking_tables_clinic", "clinic_id"),
+    )

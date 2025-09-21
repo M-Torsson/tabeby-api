@@ -311,3 +311,40 @@ class PatientUserRegisterResponse(BaseModel):
     message: str = "ok"
     user_server_id: str  # formatted P-<id>
     user_role: str
+
+# ===== Booking (Create Table) Schemas =====
+
+class BookingCreateRequest(BaseModel):
+    clinic_id: int
+    days: dict  # raw nested day structure as provided
+
+class BookingCreateResponse(BaseModel):
+    status: str
+    message: str
+
+
+# ===== Patient Booking Schemas =====
+
+class PatientBookingRequest(BaseModel):
+    # إما أن يرسل booking_id الجاهز أو يتركه ليُولد تلقائياً
+    booking_id: str | None = None
+    token: int | None = None  # اختياري، سيتم تجاهله إذا لا يطابق التسلسل المتوقع
+    patient_id: str
+    name: str
+    phone: str
+    source: Literal["patient_app", "secretary_app"]
+    status: str | None = None  # يمكن إرسال قيمة إنجليزية وسيتم تحويلها للعربية
+    created_at: str | None = None
+    secretary_id: str | None = None  # فقط عند الحجز من السكرتير
+    # في حال عدم إرسال booking_id نحتاج clinic_id + date
+    clinic_id: int | None = None
+    date: str | None = None  # صيغة YYYY-MM-DD
+
+class PatientBookingResponse(BaseModel):
+    message: str
+    booking_id: str
+    token: int
+    capacity_used: int
+    capacity_total: int
+    inline_next: int
+    status: str
