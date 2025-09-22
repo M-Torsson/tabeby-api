@@ -321,6 +321,7 @@ class BookingCreateRequest(BaseModel):
 class BookingCreateResponse(BaseModel):
     status: str
     message: str
+    capacity_total: int | None = None  # السعة المستنتجة أو المرسلة (إن وجدت) لإرجاعها في الاستجابة
 
 
 # ===== Patient Booking Schemas =====

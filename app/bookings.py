@@ -41,6 +41,57 @@ def create_table(payload: schemas.BookingCreateRequest, db: Session = Depends(ge
             obj = {k: v for k, v in obj.items() if k != "inline_next"}
         cleaned_days[d] = obj
 
+    # Helper: derive capacity_total from doctor profile if missing
+    def _derive_capacity_total(clinic_id: int) -> int | None:
+        # scan doctors with profile_json and match clinic_id inside general_info.clinic_id
+        doctors = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).all()
+        trans = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+        for doc in doctors:
+            try:
+                pobj = json.loads(doc.profile_json) if doc.profile_json else None
+            except Exception:
+                pobj = None
+            if not isinstance(pobj, dict):
+                continue
+            g = pobj.get("general_info")
+            if not isinstance(g, dict):
+                continue
+            cid = g.get("clinic_id")
+            if cid is None:
+                # allow matching by provided clinic_id equals doctor id? (skip) – strict clinic_id only
+                continue
+            # normalize both to string for comparison
+            if str(cid).strip() != str(payload.clinic_id).strip():
+                continue
+            raw_recv = g.get("receiving_patients") or g.get("receivingPatients") or g.get("receiving_patients_count")
+            if raw_recv is None:
+                return None
+            try:
+                num = int(str(raw_recv).translate(trans).strip())
+                if num > 0:
+                    return num
+            except Exception:
+                return None
+        return None
+
+    # Before persisting, inject capacity_total if absent in provided structure
+    first_day_obj = cleaned_days.get(first_date, {}) if isinstance(cleaned_days.get(first_date), dict) else {}
+    cap_present = isinstance(first_day_obj, dict) and "capacity_total" in first_day_obj
+    derived_capacity: int | None = None
+    if not cap_present:
+        derived_capacity = _derive_capacity_total(payload.clinic_id)
+        if derived_capacity is not None:
+            # set defaults for required fields if not present
+            first_day_obj.setdefault("source", "patient_app")
+            first_day_obj.setdefault("status", "open")
+            first_day_obj["capacity_total"] = derived_capacity
+            first_day_obj.setdefault("capacity_used", 0)
+            first_day_obj.setdefault("patients", [])
+            cleaned_days[first_date] = first_day_obj
+        else:
+            # validate user actually provided capacity_total in this case
+            raise HTTPException(status_code=400, detail="لم يتم إرسال capacity_total ولا يمكن استنتاجه من بروفايل الدكتور (receiving_patients)")
+
     # Find existing booking table for clinic
     bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
     if not bt:
@@ -50,9 +101,12 @@ def create_table(payload: schemas.BookingCreateRequest, db: Session = Depends(ge
         )
         db.add(bt)
         db.commit()
+        # capacity for response: prefer provided, else derived
+        resp_cap = first_day_obj.get("capacity_total") if isinstance(first_day_obj, dict) else None
         return schemas.BookingCreateResponse(
             status="تم الانشاء بنجاح",
-            message=f"تم انشاء القائمة بهذا التاريخ: {first_date}"
+            message=f"تم انشاء القائمة بهذا التاريخ: {first_date}",
+            capacity_total=resp_cap
         )
 
     # Merge behavior: if date exists -> return 'موجود' without modification
@@ -63,9 +117,17 @@ def create_table(payload: schemas.BookingCreateRequest, db: Session = Depends(ge
         existing_days = {}
 
     if first_date in existing_days:
+        # Return existing capacity_total for that date in response
+        existing_cap = None
+        try:
+            if isinstance(existing_days.get(first_date), dict):
+                existing_cap = existing_days[first_date].get("capacity_total")
+        except Exception:
+            existing_cap = None
         return schemas.BookingCreateResponse(
             status="موجود",
-            message=f"التاريخ موجود مسبقاً: {first_date}"
+            message=f"التاريخ موجود مسبقاً: {first_date}",
+            capacity_total=existing_cap
         )
 
     # Add new date(s)
@@ -74,9 +136,19 @@ def create_table(payload: schemas.BookingCreateRequest, db: Session = Depends(ge
     bt.days_json = json.dumps(existing_days, ensure_ascii=False)
     db.add(bt)
     db.commit()
+    # Determine capacity_total for response (from merged new day)
+    merged_cap = None
+    try:
+        if isinstance(cleaned_days.get(first_date), dict):
+            merged_cap = cleaned_days[first_date].get("capacity_total")
+        elif isinstance(existing_days.get(first_date), dict):
+            merged_cap = existing_days[first_date].get("capacity_total")
+    except Exception:
+        merged_cap = None
     return schemas.BookingCreateResponse(
         status="تم الانشاء بنجاح",
-        message=f"تم انشاء القائمة بهذا التاريخ: {first_date}"
+        message=f"تم انشاء القائمة بهذا التاريخ: {first_date}",
+        capacity_total=merged_cap
     )
 
 
