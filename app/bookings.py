@@ -87,7 +87,7 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     في حال لم يُرسل booking_id سيتم توليده بالشكل: B-<clinic_id>-<yyyymmdd>-XXXX
     حيث XXXX رقم متسلسل يبدأ من 0001 لذلك التاريخ.
     """
-    # إما أن يكون booking_id موجوداً (مستقبلاً لو دعمنا استرجاع) أو نحتاج clinic_id + date
+    # إما أن يكون booking_id موجوداً أو نحتاج clinic_id + date لتوليده
     if not payload.booking_id:
         if not payload.clinic_id or not payload.date:
             raise HTTPException(status_code=400, detail="يجب إرسال clinic_id و date عند عدم وجود booking_id")
@@ -115,7 +115,24 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
 
     patients_list = day_obj.get("patients", [])
 
-    # منع تكرار نفس patient_id في نفس التاريخ
+    # توليد patient_id تلقائياً إذا لم يُرسل: صيغة P-<number> تبدأ من 101 حسب أعلى رقم سابق عبر جميع الأيام للعيادة
+    if not payload.patient_id:
+        max_num = 100  # سيصبح 101 عند عدم وجود أي مريض
+        # فحص كل الأيام لاستخراج أقصى رقم patient_id
+        for d_obj in days.values():
+            for p in d_obj.get("patients", []):
+                pid = p.get("patient_id")
+                if pid and pid.startswith("P-"):
+                    try:
+                        num = int(pid.split("-",1)[1])
+                        if num > max_num:
+                            max_num = num
+                    except ValueError:
+                        pass
+        new_num = max_num + 1
+        payload.patient_id = f"P-{new_num}"
+
+    # منع تكرار نفس patient_id في نفس التاريخ (بعد التوليد)
     for p in patients_list:
         if p.get("patient_id") == payload.patient_id:
             raise HTTPException(status_code=409, detail="هذا المريض محجوز مسبقاً في هذا التاريخ")
@@ -128,13 +145,29 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     # حساب التسلسل (token)
     next_token = capacity_used + 1
 
-    # توليد booking_id إن لم يُرسل
+    # توليد booking_id إن لم يُرسل مع نمطين:
+    # secretary_app: S-<clinic_id>-<YYYYMMDD>-NNN (3 أرقام)
+    # patient_app: B-<clinic_id>-<YYYYMMDD>-NNNN (4 أرقام كما السابق)
     if not payload.booking_id:
-        # عدّ جميع الحجوزات لهذا التاريخ (patients_list length بعد التأكد أعلاه)
         seq = len(patients_list) + 1
-        booking_id = f"B-{clinic_id}-{date_key.replace('-', '')}-{seq:04d}"
+        date_compact = date_key.replace('-', '')
+        if payload.source == "secretary_app":
+            booking_id = f"S-{clinic_id}-{date_compact}-{seq:03d}"
+        else:
+            booking_id = f"B-{clinic_id}-{date_compact}-{seq:04d}"
     else:
         booking_id = payload.booking_id
+        # التحقق من صحة النمط إذا أُرسل
+        date_compact = date_key.replace('-', '') if date_key else ''
+        if payload.source == "secretary_app":
+            # يجب أن يبدأ بـ S-<clinic_id>-<date>- و آخر جزء 3 أرقام
+            expected_prefix = f"S-{clinic_id}-{date_compact}-"
+            if not booking_id.startswith(expected_prefix):
+                raise HTTPException(status_code=400, detail="booking_id غير متوافق مع النمط المطلوب للسكرتير")
+        else:
+            expected_prefix = f"B-{clinic_id}-{date_compact}-"
+            if not booking_id.startswith(expected_prefix):
+                raise HTTPException(status_code=400, detail="booking_id غير متوافق مع النمط المطلوب للتطبيق")
 
     # حالة الحجز (تحويل لو أُرسلت إنجليزية)
     raw_status = payload.status or "booked"

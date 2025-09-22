@@ -329,7 +329,7 @@ class PatientBookingRequest(BaseModel):
     # إما أن يرسل booking_id الجاهز أو يتركه ليُولد تلقائياً
     booking_id: str | None = None
     token: int | None = None  # اختياري، سيتم تجاهله إذا لا يطابق التسلسل المتوقع
-    patient_id: str
+    patient_id: str | None = None  # يمكن توليده تلقائياً حسب العيادة
     name: str
     phone: str
     source: Literal["patient_app", "secretary_app"]
