@@ -1,0 +1,35 @@
+{
+  "clinic_id": 85,
+  "days": {
+    "2025-09-22": {
+      "source": "patient_app",
+      "status": "open",
+      "capacity_total": 5,
+      "capacity_used": 5,
+      "patients": [
+        {"booking_id": "B-85-20250922-0001", "token": 1, "patient_id": "P-501", "name": "مريض 1", "phone": "+966500000001", "source": "patient_app", "status": "تم الحجز", "created_at": "2025-09-22T09:00:00+00:00"},
+        {"booking_id": "B-85-20250922-0002", "token": 2, "patient_id": "P-502", "name": "مريض 2", "phone": "+966500000002", "source": "patient_app", "status": "تم الحجز", "created_at": "2025-09-22T09:05:00+00:00"},
+        {"booking_id": "B-85-20250922-0003", "token": 3, "patient_id": "P-503", "name": "مريض 3", "phone": "+966500000003", "source": "patient_app", "status": "تم الحجز", "created_at": "2025-09-22T09:10:00+00:00"},
+        {"booking_id": "B-85-20250922-0004", "token": 4, "patient_id": "P-504", "name": "مريض 4", "phone": "+966500000004", "source": "patient_app", "status": "تم الحجز", "created_at": "2025-09-22T09:15:00+00:00"},
+        {"booking_id": "B-85-20250922-0005", "token": 5, "patient_id": "P-505", "name": "مريض 5", "phone": "+966500000005", "source": "patient_app", "status": "تم الحجز", "created_at": "2025-09-22T09:20:00+00:00"}
+      ]
+    },
+    "2025-09-23": {
+      "source": "patient_app",
+      "status": "open",
+      "capacity_total": 5,
+      "capacity_used": 2,
+      "patients": [
+        {"booking_id": "B-85-20250923-0001", "token": 1, "patient_id": "P-506", "name": "مريض 6", "phone": "+966500000006", "source": "patient_app", "status": "تم الحجز", "created_at": "2025-09-23T09:00:00+00:00"},
+        {"booking_id": "B-85-20250923-0002", "token": 2, "patient_id": "P-507", "name": "مريض 7", "phone": "+966500000007", "source": "patient_app", "status": "تم الحجز", "created_at": "2025-09-23T09:05:00+00:00"}
+      ]
+    },
+    "2025-09-24": {
+      "source": "patient_app",
+      "status": "open",
+      "capacity_total": 5,
+      "capacity_used": 0,
+      "patients": []
+    }
+  }
+}

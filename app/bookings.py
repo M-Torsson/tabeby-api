@@ -270,3 +270,20 @@ def add_day(payload: schemas.AddDayRequest, db: Session = Depends(get_db), _: No
         message=f"تمت إضافة اليوم الجديد: {new_date_str}",
         date_added=new_date_str
     )
+
+
+@router.get("/booking_days", response_model=schemas.BookingDaysFullResponse)
+def get_booking_days(clinic_id: int, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
+    """إرجاع كل الأيام (days_json) المخزنة لعيادة محددة.
+
+    استعلام بسيط يعتمد على clinic_id.
+    يعيد نفس البنية المخزنة بدون تعديل.
+    """
+    bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == clinic_id).first()
+    if not bt:
+        raise HTTPException(status_code=404, detail="لا يوجد جدول حجز لهذه العيادة")
+    try:
+        days = json.loads(bt.days_json) if bt.days_json else {}
+    except Exception:
+        days = {}
+    return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=days)

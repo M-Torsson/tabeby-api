@@ -361,3 +361,9 @@ class AddDayResponse(BaseModel):
     status: str  # نجاح / فشل عربي
     message: str
     date_added: str | None = None  # التاريخ الذي تم إضافته
+
+
+# ===== Full Booking Days Fetch Schema =====
+class BookingDaysFullResponse(BaseModel):
+    clinic_id: int
+    days: dict  # يحتوي نفس البنية المخزنة
