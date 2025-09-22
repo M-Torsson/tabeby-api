@@ -34,12 +34,19 @@ def create_table(payload: schemas.BookingCreateRequest, db: Session = Depends(ge
     # We'll handle only first provided date for response wording
     first_date = list(payload.days.keys())[0]
 
+    # Normalize: remove inline_next keys if provided by client (لم نعد نستخدمه)
+    cleaned_days = {}
+    for d, obj in payload.days.items():
+        if isinstance(obj, dict) and "inline_next" in obj:
+            obj = {k: v for k, v in obj.items() if k != "inline_next"}
+        cleaned_days[d] = obj
+
     # Find existing booking table for clinic
     bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
     if not bt:
         bt = models.BookingTable(
             clinic_id=payload.clinic_id,
-            days_json=json.dumps(payload.days, ensure_ascii=False)
+            days_json=json.dumps(cleaned_days, ensure_ascii=False)
         )
         db.add(bt)
         db.commit()
@@ -62,7 +69,8 @@ def create_table(payload: schemas.BookingCreateRequest, db: Session = Depends(ge
         )
 
     # Add new date(s)
-    existing_days.update(payload.days)
+    # Merge new day(s) after stripping inline_next
+    existing_days.update(cleaned_days)
     bt.days_json = json.dumps(existing_days, ensure_ascii=False)
     db.add(bt)
     db.commit()
@@ -101,7 +109,7 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
 
     day_obj = days[date_key]
     # التحقق من الحقول الأساسية داخل اليوم
-    for fld in ["capacity_total", "capacity_used", "patients", "inline_next"]:
+    for fld in ["capacity_total", "capacity_used", "patients"]:
         if fld not in day_obj:
             raise HTTPException(status_code=400, detail=f"الحقل مفقود داخل اليوم: {fld}")
 
@@ -150,9 +158,8 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
 
     patients_list.append(patient_entry)
 
-    # تحديث السعة و inline_next
+    # تحديث السعة (لم نعد نستعمل inline_next)
     day_obj["capacity_used"] = next_token
-    day_obj["inline_next"] = next_token + 1
     day_obj["patients"] = patients_list
     days[date_key] = day_obj
 
@@ -167,6 +174,99 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         token=next_token,
         capacity_used=next_token,
         capacity_total=capacity_total,
-        inline_next=day_obj.get("inline_next", next_token + 1),
         status=status_ar,
+    )
+
+
+@router.post("/add_day", response_model=schemas.AddDayResponse)
+def add_day(payload: schemas.AddDayRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
+    """إضافة يوم جديد (التالي) تلقائياً بعد آخر يوم موجود لنفس العيادة.
+
+    الشروط:
+    - يجب أن يوجد جدول حجز للعيادة.
+    - نحدد آخر تاريخ (max) موجود.
+    - لا نضيف يوم جديد إلا إذا كان اليوم الأخير ممتلئاً (capacity_used == capacity_total).
+    - تاريخ اليوم الجديد = اليوم الأخير + 1 يوم (بنفس تنسيق YYYY-MM-DD).
+    - السعة: إن أرسل capacity_total نستخدمها، وإلا ننسخ من آخر يوم.
+    - status: إن أرسل نستخدمه وإلا 'open'.
+    - نمنع التكرار إذا التاريخ الجديد موجود (حماية سباق).
+    """
+    bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
+    if not bt:
+        raise HTTPException(status_code=404, detail="لا يوجد جدول حجز لهذه العيادة")
+
+    try:
+        days = json.loads(bt.days_json) if bt.days_json else {}
+    except Exception:
+        days = {}
+
+    if not days:
+        raise HTTPException(status_code=400, detail="لا توجد تواريخ حالياً، استخدم create_table أولاً")
+
+    # الحصول على آخر تاريخ (مفترض صيغة YYYY-MM-DD) بترتيب معجمي كافٍ لهذه الصيغة
+    try:
+        last_date = max(days.keys())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="فشل في تحديد آخر تاريخ")
+
+    last_day = days.get(last_date, {})
+    if not all(k in last_day for k in ["capacity_total", "capacity_used", "patients"]):
+        raise HTTPException(status_code=400, detail="اليوم الأخير غير مكتمل البيانات")
+
+    capacity_total_last = int(last_day.get("capacity_total", 0))
+    capacity_used_last = int(last_day.get("capacity_used", 0))
+
+    if capacity_total_last <= 0:
+        raise HTTPException(status_code=400, detail="القيمة capacity_total لليوم الأخير غير صالحة")
+
+    if capacity_used_last < capacity_total_last:
+        # غير ممتلئ بعد
+        return schemas.AddDayResponse(
+            status="مرفوض",
+            message=f"اليوم الأخير {last_date} غير ممتلئ بعد ({capacity_used_last}/{capacity_total_last})",
+            date_added=None
+        )
+
+    # حساب التاريخ الجديد
+    try:
+        last_dt = datetime.strptime(last_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="تنسيق التاريخ الأخير غير صحيح")
+
+    from datetime import timedelta
+    new_dt = last_dt + timedelta(days=1)
+    new_date_str = new_dt.strftime("%Y-%m-%d")
+
+    if new_date_str in days:
+        # سباق أو موجود
+        return schemas.AddDayResponse(
+            status="موجود",
+            message=f"التاريخ الجديد موجود مسبقاً: {new_date_str}",
+            date_added=new_date_str
+        )
+
+    new_capacity_total = payload.capacity_total if payload.capacity_total is not None else capacity_total_last
+    if new_capacity_total <= 0:
+        raise HTTPException(status_code=400, detail="capacity_total الجديد غير صالح")
+
+    new_status = payload.status or "open"
+
+    # بناء اليوم الجديد
+    new_day_obj = {
+        "source": "patient_app",  # ثابت حسب التوافق الحالي
+        "status": new_status,
+        "capacity_total": new_capacity_total,
+        "capacity_used": 0,
+        "patients": []
+    }
+    days[new_date_str] = new_day_obj
+
+    bt.days_json = json.dumps(days, ensure_ascii=False)
+    db.add(bt)
+    db.commit()
+
+    return schemas.AddDayResponse(
+        status="تم الانشاء بنجاح",
+        message=f"تمت إضافة اليوم الجديد: {new_date_str}",
+        date_added=new_date_str
     )

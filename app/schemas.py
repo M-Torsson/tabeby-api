@@ -346,5 +346,18 @@ class PatientBookingResponse(BaseModel):
     token: int
     capacity_used: int
     capacity_total: int
-    inline_next: int
     status: str
+
+
+# ===== Add Day (Next Date) Schemas =====
+class AddDayRequest(BaseModel):
+    clinic_id: int
+    # يمكن إرسال capacity_total مخصص؛ إن لم يُرسل ننسخ من آخر يوم موجود
+    capacity_total: int | None = None
+    # حالة اليوم الجديد (افتراضياً open)
+    status: str | None = None  # مثال: open / closed
+
+class AddDayResponse(BaseModel):
+    status: str  # نجاح / فشل عربي
+    message: str
+    date_added: str | None = None  # التاريخ الذي تم إضافته
