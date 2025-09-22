@@ -185,6 +185,8 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         "source": payload.source,
         "status": status_ar,
         "created_at": created_at,
+        "clinic_id": clinic_id,
+        "date": date_key,
     }
     if payload.source == "secretary_app" and payload.secretary_id:
         patient_entry["secretary_id"] = payload.secretary_id
@@ -208,6 +210,8 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         capacity_used=next_token,
         capacity_total=capacity_total,
         status=status_ar,
+        clinic_id=clinic_id,
+        date=date_key,
     )
 
 

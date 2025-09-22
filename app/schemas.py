@@ -347,6 +347,8 @@ class PatientBookingResponse(BaseModel):
     capacity_used: int
     capacity_total: int
     status: str
+    clinic_id: int
+    date: str
 
 
 # ===== Add Day (Next Date) Schemas =====
