@@ -55,25 +55,36 @@ def secretary_login_code(
         # Generate secretary_id in format "S-{clinic_id}"
         formatted_secretary_id = f"S-{secretary.clinic_id}"
 
-        # محاولة استخراج receiving_patients من بروفايل أي دكتور مرتبط بنفس clinic_id
+        # محاولة استخراج receiving_patients من دكتور له نفس clinic_id داخل general_info.clinic_id
         receiving_patients = None
-        doctor = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).first()
-        if doctor and doctor.profile_json:
+        doctors = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).all()
+        trans = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+        for doc in doctors:
+            raw = doc.profile_json
+            if not raw:
+                continue
             try:
-                pobj = json.loads(doctor.profile_json)
-                if isinstance(pobj, dict):
-                    gi = pobj.get("general_info", {})
-                    if isinstance(gi, dict):
-                        rp = gi.get("receiving_patients") or gi.get("receivingPatients") or gi.get("receiving_patients_count")
-                        if rp is not None:
-                            # تحويل أرقام عربية إلى عادية إن وُجدت
-                            trans = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
-                            try:
-                                receiving_patients = int(str(rp).translate(trans).strip())
-                            except Exception:
-                                receiving_patients = None
+                pobj = json.loads(raw)
             except Exception:
-                receiving_patients = None
+                continue
+            if not isinstance(pobj, dict):
+                continue
+            gi = pobj.get("general_info", {})
+            if not isinstance(gi, dict):
+                continue
+            cid = gi.get("clinic_id")
+            # تطابق clinic_id رقماً أو نصاً
+            try:
+                if cid is not None and int(str(cid).translate(trans).strip()) == int(secretary.clinic_id):
+                    rp = gi.get("receiving_patients") or gi.get("receivingPatients") or gi.get("receiving_patients_count")
+                    if rp is not None:
+                        try:
+                            receiving_patients = int(str(rp).translate(trans).strip())
+                        except Exception:
+                            receiving_patients = None
+                    break
+            except Exception:
+                continue
 
         return schemas.SecretaryLoginResponse(
             status="successfuly",
