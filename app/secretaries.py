@@ -10,6 +10,7 @@ from .database import SessionLocal
 from . import models
 from . import schemas
 from .doctors import require_profile_secret
+import json
 
 router = APIRouter(prefix="/api", tags=["Secretaries"])
 
@@ -53,15 +54,35 @@ def secretary_login_code(
         
         # Generate secretary_id in format "S-{clinic_id}"
         formatted_secretary_id = f"S-{secretary.clinic_id}"
-        
-        # Return secretary information
+
+        # محاولة استخراج receiving_patients من بروفايل أي دكتور مرتبط بنفس clinic_id
+        receiving_patients = None
+        doctor = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).first()
+        if doctor and doctor.profile_json:
+            try:
+                pobj = json.loads(doctor.profile_json)
+                if isinstance(pobj, dict):
+                    gi = pobj.get("general_info", {})
+                    if isinstance(gi, dict):
+                        rp = gi.get("receiving_patients") or gi.get("receivingPatients") or gi.get("receiving_patients_count")
+                        if rp is not None:
+                            # تحويل أرقام عربية إلى عادية إن وُجدت
+                            trans = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+                            try:
+                                receiving_patients = int(str(rp).translate(trans).strip())
+                            except Exception:
+                                receiving_patients = None
+            except Exception:
+                receiving_patients = None
+
         return schemas.SecretaryLoginResponse(
             status="successfuly",
             clinic_id=secretary.clinic_id,
             secretary_id=formatted_secretary_id,
             doctor_name=secretary.doctor_name,
             secretary_name=secretary.secretary_name,
-            created_date=secretary.created_date
+            created_date=secretary.created_date,
+            receiving_patients=receiving_patients
         )
         
     except HTTPException:

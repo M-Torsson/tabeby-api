@@ -298,6 +298,7 @@ class SecretaryLoginResponse(BaseModel):
     doctor_name: str
     secretary_name: str
     created_date: str
+    receiving_patients: int | None = None
 
 
 # ===== Patient User Registration Schemas =====
