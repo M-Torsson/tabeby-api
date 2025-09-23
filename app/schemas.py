@@ -389,3 +389,24 @@ class EditPatientBookingResponse(BaseModel):
     booking_id: str
     old_status: str
     new_status: str
+
+
+# ===== Save/Close Table Schemas =====
+class SaveTableRequest(BaseModel):
+    clinic_id: int
+    closed_date: str  # YYYY-MM-DD
+    capacity_total: int
+    capacity_served: int | None = None
+    capacity_cancelled: int | None = None
+    patients: list[dict]
+
+class SaveTableResponse(BaseModel):
+    status: str
+
+class CloseTableRequest(BaseModel):
+    clinic_id: int
+    date: str  # التاريخ المراد حذفه
+
+class CloseTableResponse(BaseModel):
+    status: str
+    removed_all: bool

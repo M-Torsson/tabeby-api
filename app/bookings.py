@@ -550,3 +550,81 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
         old_status=old_status,
         new_status=normalized_status,
     )
+
+
+@router.post("/save_table", response_model=schemas.SaveTableResponse)
+def save_table(payload: schemas.SaveTableRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
+    """حفظ (أرشفة) يوم مغلق خارج days_json في شكل مبسط.
+
+    - لا نعدل days_json للحجوزات الحالية (هذا endpoint مستقل حسب وصفك)
+    - إذا رغبت لاحقاً بجدول SQL منفصل يمكن إضافته، الآن نخزن في جدول BookingTable نفسه داخل حقل days_json
+      تحت مفتاح خاص: _archived_<date>
+    """
+    bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
+    if not bt:
+        # إنشاء سجل جديد فارغ ثم إضافة الأرشيف
+        container = {}
+    else:
+        try:
+            container = json.loads(bt.days_json) if bt.days_json else {}
+        except Exception:
+            container = {}
+
+    key = f"_archived_{payload.closed_date}"
+    archive_obj = {
+        "clinic_id": payload.clinic_id,
+        "closed_date": payload.closed_date,
+        "capacity_total": payload.capacity_total,
+        "capacity_served": payload.capacity_served,
+        "capacity_cancelled": payload.capacity_cancelled,
+        "patients": payload.patients,
+    }
+    container[key] = archive_obj
+
+    if not bt:
+        bt = models.BookingTable(clinic_id=payload.clinic_id, days_json=json.dumps(container, ensure_ascii=False))
+        db.add(bt)
+    else:
+        bt.days_json = json.dumps(container, ensure_ascii=False)
+        db.add(bt)
+    db.commit()
+    return schemas.SaveTableResponse(status="تم حفظ القائمة بنجاح")
+
+
+@router.post("/close_table", response_model=schemas.CloseTableResponse)
+def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
+    """حذف تاريخ من days_json:
+        - إذا كان هناك تاريخ واحد فقط سيتم حذف السجل بالكامل.
+        - إذا أكثر من تاريخ نحذف التاريخ المحدد فقط.
+    """
+    bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
+    if not bt:
+        raise HTTPException(status_code=404, detail="لا يوجد جدول حجز لهذه العيادة")
+    try:
+        days = json.loads(bt.days_json) if bt.days_json else {}
+    except Exception:
+        days = {}
+
+    # استبعد أي مفاتيح أرشيف (_archived_) من العد المنطقي لأيام الحجز
+    booking_day_keys = [k for k in days.keys() if not k.startswith("_archived_")]
+    if payload.date not in days:
+        raise HTTPException(status_code=404, detail="التاريخ غير موجود")
+
+    # حذف التاريخ المطلوب
+    if payload.date in days:
+        days.pop(payload.date)
+
+    # إعادة حساب الأيام الفعلية بعد الحذف
+    remaining_booking_days = [k for k in days.keys() if not k.startswith("_archived_")]
+
+    if not remaining_booking_days:
+        # حذف السجل كاملاً
+        db.delete(bt)
+        db.commit()
+        return schemas.CloseTableResponse(status="تم حذف القائمة بالكامل", removed_all=True)
+
+    # تحديث السجل
+    bt.days_json = json.dumps(days, ensure_ascii=False)
+    db.add(bt)
+    db.commit()
+    return schemas.CloseTableResponse(status="تم حذف التاريخ بنجاح", removed_all=False)
