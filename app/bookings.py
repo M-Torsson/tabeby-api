@@ -487,22 +487,23 @@ def get_booking_days(clinic_id: int, db: Session = Depends(get_db), _: None = De
 
 @router.post("/edit_patient_booking", response_model=schemas.EditPatientBookingResponse)
 def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
-    """تعديل (فقط) حالة مريض محدد داخل يوم ما.
-
-    المدخلات:
-      - clinic_id (إلزامي)
-      - booking_id (مفضل) أو patient_id كبديل ثانوي
-      - status (قد تكون إنجليزية أو عربية)
+    """تعديل حالة مريض بالاعتماد حصراً على booking_id.
 
     المنطق:
-      - قراءة days_json
-      - البحث عن المريض عبر booking_id أولاً، وإن لم يُرسل أو لم يُطابق وجِد patient_id يُستخدم كبديل.
-      - تحويل القيمة الإنجليزية للعربية إن وُجدت في STATUS_MAP، وإلا تبقى كما هي.
-      - تحديث مفتاح status داخل ذلك المريض فقط بدون أي تعديل آخر.
-      - حفظ days_json.
+      - booking_id يحتوي التاريخ بالشكل B-<clinic>-<YYYYMMDD>-XXXX أو S-<clinic>-<YYYYMMDD>-NNN
+      - نستخرج منه جزء التاريخ (المقطع الثالث بعد التقسيم) للتحقق أن اليوم موجود.
+      - نبحث داخل ذلك اليوم عن المريض الذي يحمل نفس booking_id.
+      - نحدّث status فقط.
     """
-    if not payload.booking_id and not payload.patient_id:
-        raise HTTPException(status_code=400, detail="يجب إرسال booking_id أو patient_id")
+    booking_id = payload.booking_id
+    parts = booking_id.split('-')
+    if len(parts) < 4:
+        raise HTTPException(status_code=400, detail="booking_id غير صالح")
+    # الصيغة المتوقعة: PREFIX-clinicId-YYYYMMDD-SEQ
+    date_compact = parts[2]
+    if len(date_compact) != 8 or not date_compact.isdigit():
+        raise HTTPException(status_code=400, detail="جزء التاريخ داخل booking_id غير صالح")
+    date_key = f"{date_compact[0:4]}-{date_compact[4:6]}-{date_compact[6:8]}"
 
     bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
     if not bt:
@@ -513,51 +514,39 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
     except Exception:
         days = {}
 
-    target_booking_id = payload.booking_id
-    target_patient_id = payload.patient_id
+    day_obj = days.get(date_key)
+    if not isinstance(day_obj, dict):
+        raise HTTPException(status_code=404, detail="اليوم المستخرج من booking_id غير موجود")
+
+    plist = day_obj.get("patients")
+    if not isinstance(plist, list):
+        raise HTTPException(status_code=404, detail="لا توجد قائمة مرضى لهذا اليوم")
 
     normalized_status = STATUS_MAP.get(payload.status, payload.status)
 
-    found = None  # (day_key, index_in_patients, old_status)
-    for d_key, d_val in days.items():
-        if not isinstance(d_val, dict):
-            continue
-        plist = d_val.get("patients")
-        if not isinstance(plist, list):
-            continue
-        for idx, p in enumerate(plist):
-            if not isinstance(p, dict):
-                continue
-            bid = p.get("booking_id")
-            pid = p.get("patient_id")
-            if target_booking_id and bid == target_booking_id:
-                found = (d_key, idx, p.get("status"))
-                break
-            if not target_booking_id and target_patient_id and pid == target_patient_id:
-                found = (d_key, idx, p.get("status"))
-                break
-        if found:
+    target_index = None
+    old_status = None
+    for idx, p in enumerate(plist):
+        if isinstance(p, dict) and p.get("booking_id") == booking_id:
+            target_index = idx
+            old_status = p.get("status")
             break
 
-    if not found:
-        raise HTTPException(status_code=404, detail="المريض المطلوب غير موجود")
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="الحجز غير موجود داخل هذا التاريخ")
 
-    day_key, patient_index, old_status = found
-    # تعديل النسخة الموجودة فقط
-    days[day_key]["patients"][patient_index]["status"] = normalized_status
+    plist[target_index]["status"] = normalized_status
+    day_obj["patients"] = plist
+    days[date_key] = day_obj
 
-    # حفظ بدون أي تغييرات أخرى
     bt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(bt)
     db.commit()
 
-    # إعادة تأكيد القيم من المخزن (بعد التعديل)
-    final_booking_id = days[day_key]["patients"][patient_index].get("booking_id")
-
     return schemas.EditPatientBookingResponse(
         message="تم تحديث الحالة بنجاح",
         clinic_id=payload.clinic_id,
-        booking_id=final_booking_id,
+        booking_id=booking_id,
         old_status=old_status,
         new_status=normalized_status,
     )

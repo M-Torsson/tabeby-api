@@ -380,8 +380,7 @@ class BookingDaysFullResponse(BaseModel):
 # ===== Edit Patient Booking Status =====
 class EditPatientBookingRequest(BaseModel):
     clinic_id: int
-    booking_id: str | None = None
-    patient_id: str | None = None  # خيار احتياطي لو لم يتوفر booking_id
+    booking_id: str  # إجباري الآن - نستخدمه لاستخراج التاريخ والمريض
     status: str  # يمكن إرسال إنجليزي (booked, served, ...) أو عربي
 
 class EditPatientBookingResponse(BaseModel):
