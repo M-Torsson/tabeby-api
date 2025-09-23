@@ -395,7 +395,8 @@ class EditPatientBookingResponse(BaseModel):
 # ===== Save/Close Table Schemas =====
 class SaveTableRequest(BaseModel):
     clinic_id: int
-    closed_date: str  # YYYY-MM-DD
+    # اسم الحقل الجديد: table_date (بدلاً من closed_date) ليطابق العمود الجديد
+    table_date: str = Field(validation_alias="closed_date")  # YYYY-MM-DD (يقبل closed_date أيضاً للتوافق)
     capacity_total: int
     capacity_served: int | None = None
     capacity_cancelled: int | None = None

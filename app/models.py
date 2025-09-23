@@ -261,3 +261,24 @@ class BookingTable(Base):
     __table_args__ = (
         Index("ix_booking_tables_clinic", "clinic_id"),
     )
+
+
+# ===== Booking Archived Days (each saved/closed day in its own row) =====
+
+class BookingArchive(Base):
+    __tablename__ = "booking_archives"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    clinic_id = Column(Integer, index=True, nullable=False)
+    # اليوم المؤرشف (date فقط بدون وقت)
+    table_date = Column(String, nullable=False, index=True)  # صيغة YYYY-MM-DD
+    capacity_total = Column(Integer, nullable=False)
+    capacity_served = Column(Integer, nullable=True)
+    capacity_cancelled = Column(Integer, nullable=True)
+    patients_json = Column(Text, nullable=False)  # نسخة مبسطة من المرضى
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_booking_archives_clinic_date", "clinic_id", "table_date"),
+    )

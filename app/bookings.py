@@ -554,41 +554,44 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
 
 @router.post("/save_table", response_model=schemas.SaveTableResponse)
 def save_table(payload: schemas.SaveTableRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
-    """حفظ (أرشفة) يوم مغلق خارج days_json في شكل مبسط.
+    """أرشفة يوم في جدول مستقل booking_archives.
 
-    - لا نعدل days_json للحجوزات الحالية (هذا endpoint مستقل حسب وصفك)
-    - إذا رغبت لاحقاً بجدول SQL منفصل يمكن إضافته، الآن نخزن في جدول BookingTable نفسه داخل حقل days_json
-      تحت مفتاح خاص: _archived_<date>
+    الحقول: clinic_id + table_date (مفتاح منطقي) + النسخة المبسطة من المرضى.
+    - إذا كان هناك صف سابق لنفس (clinic_id, table_date) سنقوم بتحديثه (Upsert logic).
+    - patients تُخزن كنص JSON في العمود patients_json.
     """
-    bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
-    if not bt:
-        # إنشاء سجل جديد فارغ ثم إضافة الأرشيف
-        container = {}
-    else:
-        try:
-            container = json.loads(bt.days_json) if bt.days_json else {}
-        except Exception:
-            container = {}
+    # تحقق من الصيغة البسيطة للتاريخ
+    try:
+        datetime.strptime(payload.table_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="صيغة التاريخ غير صحيحة، يجب YYYY-MM-DD")
 
-    key = f"_archived_{payload.closed_date}"
-    archive_obj = {
-        "clinic_id": payload.clinic_id,
-        "closed_date": payload.closed_date,
-        "capacity_total": payload.capacity_total,
-        "capacity_served": payload.capacity_served,
-        "capacity_cancelled": payload.capacity_cancelled,
-        "patients": payload.patients,
-    }
-    container[key] = archive_obj
-
-    if not bt:
-        bt = models.BookingTable(clinic_id=payload.clinic_id, days_json=json.dumps(container, ensure_ascii=False))
-        db.add(bt)
+    existing = (
+        db.query(models.BookingArchive)
+        .filter(models.BookingArchive.clinic_id == payload.clinic_id,
+                models.BookingArchive.table_date == payload.table_date)
+        .first()
+    )
+    if existing:
+        existing.capacity_total = payload.capacity_total
+        existing.capacity_served = payload.capacity_served
+        existing.capacity_cancelled = payload.capacity_cancelled
+        existing.patients_json = json.dumps(payload.patients, ensure_ascii=False)
+        db.add(existing)
+        db.commit()
+        return schemas.SaveTableResponse(status="تم تحديث الأرشيف بنجاح")
     else:
-        bt.days_json = json.dumps(container, ensure_ascii=False)
-        db.add(bt)
-    db.commit()
-    return schemas.SaveTableResponse(status="تم حفظ القائمة بنجاح")
+        arch = models.BookingArchive(
+            clinic_id=payload.clinic_id,
+            table_date=payload.table_date,
+            capacity_total=payload.capacity_total,
+            capacity_served=payload.capacity_served,
+            capacity_cancelled=payload.capacity_cancelled,
+            patients_json=json.dumps(payload.patients, ensure_ascii=False)
+        )
+        db.add(arch)
+        db.commit()
+        return schemas.SaveTableResponse(status="تم إنشاء الأرشيف بنجاح")
 
 
 @router.post("/close_table", response_model=schemas.CloseTableResponse)
