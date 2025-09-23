@@ -566,6 +566,34 @@ def save_table(payload: schemas.SaveTableRequest, db: Session = Depends(get_db),
     except ValueError:
         raise HTTPException(status_code=400, detail="صيغة التاريخ غير صحيحة، يجب YYYY-MM-DD")
 
+    # إذا لم تُرسل الحقول (capacity_total / patients ...) سنستخرجها من booking_tables
+    cap_total = payload.capacity_total
+    cap_served = payload.capacity_served
+    cap_cancelled = payload.capacity_cancelled
+    patients_list = payload.patients
+
+    if cap_total is None or patients_list is None:
+        bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
+        if not bt:
+            raise HTTPException(status_code=404, detail="لا يوجد جدول حجز لاستخراج البيانات")
+        try:
+            days = json.loads(bt.days_json) if bt.days_json else {}
+        except Exception:
+            days = {}
+        day_obj = days.get(payload.table_date)
+        if not isinstance(day_obj, dict):
+            raise HTTPException(status_code=404, detail="لا يوجد يوم مطابق في الجدول الحالي")
+        # استنتاج البيانات
+        if cap_total is None:
+            cap_total = day_obj.get("capacity_total") or 0
+        plist = day_obj.get("patients") if isinstance(day_obj.get("patients"), list) else []
+        if patients_list is None:
+            patients_list = plist
+        if cap_served is None:
+            cap_served = sum(1 for p in plist if isinstance(p, dict) and p.get("status") in ("تمت المعاينة", "served"))
+        if cap_cancelled is None:
+            cap_cancelled = sum(1 for p in plist if isinstance(p, dict) and p.get("status") in ("ملغى", "cancelled"))
+
     existing = (
         db.query(models.BookingArchive)
         .filter(models.BookingArchive.clinic_id == payload.clinic_id,
@@ -573,10 +601,10 @@ def save_table(payload: schemas.SaveTableRequest, db: Session = Depends(get_db),
         .first()
     )
     if existing:
-        existing.capacity_total = payload.capacity_total
-        existing.capacity_served = payload.capacity_served
-        existing.capacity_cancelled = payload.capacity_cancelled
-        existing.patients_json = json.dumps(payload.patients, ensure_ascii=False)
+        existing.capacity_total = cap_total
+        existing.capacity_served = cap_served
+        existing.capacity_cancelled = cap_cancelled
+        existing.patients_json = json.dumps(patients_list, ensure_ascii=False)
         db.add(existing)
         db.commit()
         return schemas.SaveTableResponse(status="تم تحديث الأرشيف بنجاح")
@@ -584,10 +612,10 @@ def save_table(payload: schemas.SaveTableRequest, db: Session = Depends(get_db),
         arch = models.BookingArchive(
             clinic_id=payload.clinic_id,
             table_date=payload.table_date,
-            capacity_total=payload.capacity_total,
-            capacity_served=payload.capacity_served,
-            capacity_cancelled=payload.capacity_cancelled,
-            patients_json=json.dumps(payload.patients, ensure_ascii=False)
+            capacity_total=cap_total or 0,
+            capacity_served=cap_served,
+            capacity_cancelled=cap_cancelled,
+            patients_json=json.dumps(patients_list or [], ensure_ascii=False)
         )
         db.add(arch)
         db.commit()

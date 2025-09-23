@@ -397,10 +397,11 @@ class SaveTableRequest(BaseModel):
     clinic_id: int
     # اسم الحقل الجديد: table_date (بدلاً من closed_date) ليطابق العمود الجديد
     table_date: str = Field(validation_alias="closed_date")  # YYYY-MM-DD (يقبل closed_date أيضاً للتوافق)
-    capacity_total: int
+    # نجعل الحقول التالية اختيارية ليُمكن الاكتفاء بإرسال التاريخ فقط
+    capacity_total: int | None = None
     capacity_served: int | None = None
     capacity_cancelled: int | None = None
-    patients: list[dict]
+    patients: list[dict] | None = None
 
 class SaveTableResponse(BaseModel):
     status: str
