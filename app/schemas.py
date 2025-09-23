@@ -375,3 +375,18 @@ class AddDayResponse(BaseModel):
 class BookingDaysFullResponse(BaseModel):
     clinic_id: int
     days: dict  # يحتوي نفس البنية المخزنة
+
+
+# ===== Edit Patient Booking Status =====
+class EditPatientBookingRequest(BaseModel):
+    clinic_id: int
+    booking_id: str | None = None
+    patient_id: str | None = None  # خيار احتياطي لو لم يتوفر booking_id
+    status: str  # يمكن إرسال إنجليزي (booked, served, ...) أو عربي
+
+class EditPatientBookingResponse(BaseModel):
+    message: str
+    clinic_id: int
+    booking_id: str
+    old_status: str
+    new_status: str

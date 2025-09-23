@@ -483,3 +483,81 @@ def get_booking_days(clinic_id: int, db: Session = Depends(get_db), _: None = De
         cleaned_days[d_key] = d_val
 
     return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cleaned_days)
+
+
+@router.post("/edit_patient_booking", response_model=schemas.EditPatientBookingResponse)
+def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
+    """تعديل (فقط) حالة مريض محدد داخل يوم ما.
+
+    المدخلات:
+      - clinic_id (إلزامي)
+      - booking_id (مفضل) أو patient_id كبديل ثانوي
+      - status (قد تكون إنجليزية أو عربية)
+
+    المنطق:
+      - قراءة days_json
+      - البحث عن المريض عبر booking_id أولاً، وإن لم يُرسل أو لم يُطابق وجِد patient_id يُستخدم كبديل.
+      - تحويل القيمة الإنجليزية للعربية إن وُجدت في STATUS_MAP، وإلا تبقى كما هي.
+      - تحديث مفتاح status داخل ذلك المريض فقط بدون أي تعديل آخر.
+      - حفظ days_json.
+    """
+    if not payload.booking_id and not payload.patient_id:
+        raise HTTPException(status_code=400, detail="يجب إرسال booking_id أو patient_id")
+
+    bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
+    if not bt:
+        raise HTTPException(status_code=404, detail="لا يوجد جدول حجز لهذه العيادة")
+
+    try:
+        days = json.loads(bt.days_json) if bt.days_json else {}
+    except Exception:
+        days = {}
+
+    target_booking_id = payload.booking_id
+    target_patient_id = payload.patient_id
+
+    normalized_status = STATUS_MAP.get(payload.status, payload.status)
+
+    found = None  # (day_key, index_in_patients, old_status)
+    for d_key, d_val in days.items():
+        if not isinstance(d_val, dict):
+            continue
+        plist = d_val.get("patients")
+        if not isinstance(plist, list):
+            continue
+        for idx, p in enumerate(plist):
+            if not isinstance(p, dict):
+                continue
+            bid = p.get("booking_id")
+            pid = p.get("patient_id")
+            if target_booking_id and bid == target_booking_id:
+                found = (d_key, idx, p.get("status"))
+                break
+            if not target_booking_id and target_patient_id and pid == target_patient_id:
+                found = (d_key, idx, p.get("status"))
+                break
+        if found:
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail="المريض المطلوب غير موجود")
+
+    day_key, patient_index, old_status = found
+    # تعديل النسخة الموجودة فقط
+    days[day_key]["patients"][patient_index]["status"] = normalized_status
+
+    # حفظ بدون أي تغييرات أخرى
+    bt.days_json = json.dumps(days, ensure_ascii=False)
+    db.add(bt)
+    db.commit()
+
+    # إعادة تأكيد القيم من المخزن (بعد التعديل)
+    final_booking_id = days[day_key]["patients"][patient_index].get("booking_id")
+
+    return schemas.EditPatientBookingResponse(
+        message="تم تحديث الحالة بنجاح",
+        clinic_id=payload.clinic_id,
+        booking_id=final_booking_id,
+        old_status=old_status,
+        new_status=normalized_status,
+    )
