@@ -187,22 +187,27 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
 
     patients_list = day_obj.get("patients", [])
 
-    # توليد patient_id تلقائياً إذا لم يُرسل: صيغة P-<number> تبدأ من 101 حسب أعلى رقم سابق عبر جميع الأيام للعيادة
+    # توليد patient_id
+    # - للحجز من تطبيق المريض: النظام السابق P-<number> (تسلسل عالمي للعيادة يبدأ من 101)
+    # - للحجز من السكرتير: نستخدم آخر 3 أرقام من booking_id (بعد توليده) ونخزنه كقيمة مجردة مثل "003"
+    auto_patient_id_for_patient_app: str | None = None
     if not payload.patient_id:
-        max_num = 100  # سيصبح 101 عند عدم وجود أي مريض
-        # فحص كل الأيام لاستخراج أقصى رقم patient_id
+        # حساب التسلسل العام (للتطبيق فقط)
+        max_num = 100  # سيصبح 101 عند عدم وجود أي مريض من التطبيق
         for d_obj in days.values():
             for p in d_obj.get("patients", []):
                 pid = p.get("patient_id")
-                if pid and pid.startswith("P-"):
+                if not pid:
+                    continue
+                if pid.startswith("P-"):
                     try:
-                        num = int(pid.split("-",1)[1])
+                        num = int(pid.split("-", 1)[1])
                         if num > max_num:
                             max_num = num
-                    except ValueError:
+                    except Exception:
                         pass
-        new_num = max_num + 1
-        payload.patient_id = f"P-{new_num}"
+        auto_patient_id_for_patient_app = f"P-{max_num+1}"
+        # سنقرر لاحقاً بعد توليد booking_id أيهما نستخدم حسب المصدر
 
     # منع تكرار نفس patient_id في نفس التاريخ (بعد التوليد)
     for p in patients_list:
@@ -241,12 +246,31 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
             if not booking_id.startswith(expected_prefix):
                 raise HTTPException(status_code=400, detail="booking_id غير متوافق مع النمط المطلوب للتطبيق")
 
+    # الآن نحدد patient_id النهائي:
+    if payload.source == "secretary_app":
+        # سيُحدد بعد توليد booking_id: نأخذ آخر 3 أرقام
+        pass
+    else:
+        if not payload.patient_id:
+            payload.patient_id = auto_patient_id_for_patient_app
+
     # حالة الحجز (تحويل لو أُرسلت إنجليزية)
     raw_status = payload.status or "booked"
     status_ar = STATUS_MAP.get(raw_status, raw_status)
 
     # created_at
     created_at = payload.created_at or datetime.now(timezone.utc).isoformat()
+
+    # لو الحجز سكرتير ولم يُرسل patient_id: خذه من آخر 3 أرقام في booking_id
+    if payload.source == "secretary_app" and (not payload.patient_id):
+        # booking_id الآن موجود
+        suffix = booking_id.split('-')[-1]
+        # تأكد أنه 3 أرقام
+        if len(suffix) == 3 and suffix.isdigit():
+            payload.patient_id = suffix
+        else:
+            # fallback احتياطي: استخدم التسلسل العام
+            payload.patient_id = auto_patient_id_for_patient_app or "P-101"
 
     patient_entry = {
         "booking_id": booking_id,
@@ -257,8 +281,6 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         "source": payload.source,
         "status": status_ar,
         "created_at": created_at,
-        "clinic_id": clinic_id,
-        "date": date_key,
     }
     if payload.source == "secretary_app" and payload.secretary_id:
         patient_entry["secretary_id"] = payload.secretary_id
@@ -284,6 +306,7 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         status=status_ar,
         clinic_id=clinic_id,
         date=date_key,
+        patient_id=payload.patient_id,
     )
 
 
@@ -328,8 +351,8 @@ def add_day(payload: schemas.AddDayRequest, db: Session = Depends(get_db), _: No
     if capacity_total_last <= 0:
         raise HTTPException(status_code=400, detail="القيمة capacity_total لليوم الأخير غير صالحة")
 
-    if capacity_used_last < capacity_total_last:
-        # غير ممتلئ بعد
+    if capacity_used_last < capacity_total_last and not getattr(payload, "force_add", False):
+        # غير ممتلئ بعد ولا يوجد force_add
         return schemas.AddDayResponse(
             status="مرفوض",
             message=f"اليوم الأخير {last_date} غير ممتلئ بعد ({capacity_used_last}/{capacity_total_last})",
@@ -395,4 +418,29 @@ def get_booking_days(clinic_id: int, db: Session = Depends(get_db), _: None = De
         days = json.loads(bt.days_json) if bt.days_json else {}
     except Exception:
         days = {}
-    return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=days)
+
+    # 1) إزالة الحقول القديمة inline_next إن وجدت
+    # 2) تنظيف أي مفاتيح clinic_id / date داخل كل مريض
+    # 3) ترتيب التواريخ تصاعدياً قبل الإرجاع
+    cleaned_days = {}
+    for d_key in sorted(days.keys()):  # الترتيب التصاعدي YYYY-MM-DD
+        d_val = days.get(d_key)
+        if not isinstance(d_val, dict):
+            cleaned_days[d_key] = d_val
+            continue
+        # إزالة inline_next إن وجد
+        if "inline_next" in d_val:
+            d_val = {k: v for k, v in d_val.items() if k != "inline_next"}
+        # تنظيف المرضى
+        patients = d_val.get("patients")
+        if isinstance(patients, list):
+            new_list = []
+            for p in patients:
+                if isinstance(p, dict):
+                    if "clinic_id" in p or "date" in p:
+                        p = {k: v for k, v in p.items() if k not in ("clinic_id", "date")}
+                new_list.append(p)
+            d_val["patients"] = new_list
+        cleaned_days[d_key] = d_val
+
+    return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cleaned_days)

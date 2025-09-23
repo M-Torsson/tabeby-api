@@ -350,6 +350,7 @@ class PatientBookingResponse(BaseModel):
     status: str
     clinic_id: int
     date: str
+    patient_id: str | None = None  # مُعاد الآن لإظهار رقم المراجع (يختلف حسب المصدر)
 
 
 # ===== Add Day (Next Date) Schemas =====
@@ -359,6 +360,8 @@ class AddDayRequest(BaseModel):
     capacity_total: int | None = None
     # حالة اليوم الجديد (افتراضياً open)
     status: str | None = None  # مثال: open / closed
+    # تخطي شرط امتلاء اليوم الأخير وإضافة اليوم الجديد بالقوة
+    force_add: bool | None = False
 
 class AddDayResponse(BaseModel):
     status: str  # نجاح / فشل عربي
