@@ -362,6 +362,8 @@ class AddDayRequest(BaseModel):
     status: str | None = None  # مثال: open / closed
     # تخطي شرط امتلاء اليوم الأخير وإضافة اليوم الجديد بالقوة
     force_add: bool | None = False
+    # تاريخ مخصص لإضافته (إن أُرسل نتجاهل حساب اليوم التالي)، يدعم أيضاً المفتاح date_added في الطلب
+    date: str | None = Field(default=None, validation_alias="date_added")
 
 class AddDayResponse(BaseModel):
     status: str  # نجاح / فشل عربي

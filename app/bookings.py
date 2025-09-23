@@ -332,10 +332,55 @@ def add_day(payload: schemas.AddDayRequest, db: Session = Depends(get_db), _: No
     except Exception:
         days = {}
 
-    if not days:
-        raise HTTPException(status_code=400, detail="لا توجد تواريخ حالياً، استخدم create_table أولاً")
+    # إذا أُرسل تاريخ مخصص نستخدمه مباشرة (نتجاهل شرط الامتلاء)
+    custom_date = getattr(payload, "date", None)
+    if custom_date:
+        # تحقق من الصيغة
+        try:
+            datetime.strptime(custom_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="صيغة التاريخ غير صحيحة (يجب YYYY-MM-DD)")
+        if custom_date in days:
+            return schemas.AddDayResponse(
+                status="موجود",
+                message=f"التاريخ موجود مسبقاً: {custom_date}",
+                date_added=custom_date
+            )
+        # نحتاج مرجع لسعة سابقة (إن لم يُرسل capacity_total) نأخذها من آخر يوم موجود إن وجد
+        ref_capacity = None
+        if days:
+            try:
+                last_ref = max(days.keys())
+                ref_day = days.get(last_ref, {}) if isinstance(days.get(last_ref), dict) else {}
+                ref_capacity = ref_day.get("capacity_total")
+            except Exception:
+                ref_capacity = None
+        new_capacity_total = payload.capacity_total if payload.capacity_total is not None else (ref_capacity or 0)
+        if new_capacity_total <= 0:
+            raise HTTPException(status_code=400, detail="capacity_total غير صالح")
+        new_status = payload.status or "open"
+        new_day_obj = {
+            "source": "patient_app",
+            "status": new_status,
+            "capacity_total": new_capacity_total,
+            "capacity_used": 0,
+            "patients": []
+        }
+        days[custom_date] = new_day_obj
+        bt.days_json = json.dumps(days, ensure_ascii=False)
+        db.add(bt)
+        db.commit()
+        return schemas.AddDayResponse(
+            status="تم الانشاء بنجاح",
+            message=f"تمت إضافة اليوم الجديد: {custom_date}",
+            date_added=custom_date
+        )
 
-    # الحصول على آخر تاريخ (مفترض صيغة YYYY-MM-DD) بترتيب معجمي كافٍ لهذه الصيغة
+    # الوضع القديم (بدون تاريخ مخصص): يجب أن يوجد تواريخ سابقة
+    if not days:
+        raise HTTPException(status_code=400, detail="لا توجد تواريخ حالياً، استخدم create_table أولاً أو أرسل تاريخاً مخصصاً")
+
+    # الحصول على آخر تاريخ
     try:
         last_date = max(days.keys())
     except ValueError:
@@ -352,14 +397,13 @@ def add_day(payload: schemas.AddDayRequest, db: Session = Depends(get_db), _: No
         raise HTTPException(status_code=400, detail="القيمة capacity_total لليوم الأخير غير صالحة")
 
     if capacity_used_last < capacity_total_last and not getattr(payload, "force_add", False):
-        # غير ممتلئ بعد ولا يوجد force_add
         return schemas.AddDayResponse(
             status="مرفوض",
             message=f"اليوم الأخير {last_date} غير ممتلئ بعد ({capacity_used_last}/{capacity_total_last})",
             date_added=None
         )
 
-    # حساب التاريخ الجديد
+    # حساب التاريخ التالي
     try:
         last_dt = datetime.strptime(last_date, "%Y-%m-%d")
     except ValueError:
@@ -370,7 +414,6 @@ def add_day(payload: schemas.AddDayRequest, db: Session = Depends(get_db), _: No
     new_date_str = new_dt.strftime("%Y-%m-%d")
 
     if new_date_str in days:
-        # سباق أو موجود
         return schemas.AddDayResponse(
             status="موجود",
             message=f"التاريخ الجديد موجود مسبقاً: {new_date_str}",
@@ -382,21 +425,17 @@ def add_day(payload: schemas.AddDayRequest, db: Session = Depends(get_db), _: No
         raise HTTPException(status_code=400, detail="capacity_total الجديد غير صالح")
 
     new_status = payload.status or "open"
-
-    # بناء اليوم الجديد
     new_day_obj = {
-        "source": "patient_app",  # ثابت حسب التوافق الحالي
+        "source": "patient_app",
         "status": new_status,
         "capacity_total": new_capacity_total,
         "capacity_used": 0,
         "patients": []
     }
     days[new_date_str] = new_day_obj
-
     bt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(bt)
     db.commit()
-
     return schemas.AddDayResponse(
         status="تم الانشاء بنجاح",
         message=f"تمت إضافة اليوم الجديد: {new_date_str}",
