@@ -313,6 +313,26 @@ class PatientUserRegisterResponse(BaseModel):
     user_server_id: str  # formatted P-<id>
     user_role: str
 
+
+# ===== Patient Profile Schemas =====
+
+class PatientProfileCreateRequest(BaseModel):
+    user_server_id: str  # e.g., P-1
+    patient_name: str
+    phone_number: str
+    gender: str | None = None
+    date_of_birth: str | None = None  # keep as DD/MM/YYYY per your example
+
+class PatientProfileResponse(BaseModel):
+    id: int
+    user_server_id: str
+    patient_name: str
+    phone_number: str
+    gender: str | None = None
+    date_of_birth: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
 # ===== Booking (Create Table) Schemas =====
 
 class BookingCreateRequest(BaseModel):

@@ -17,6 +17,21 @@ class UserAccount(Base):
     doctor_id = Column(Integer, ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+# ===== Patient Profile (per user account) =====
+
+class PatientProfile(Base):
+    __tablename__ = "patient_profiles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_account_id = Column(Integer, ForeignKey("user_accounts.id", ondelete="CASCADE"), unique=True, index=True, nullable=False)
+    patient_name = Column(String, nullable=False)
+    phone_number = Column(String, nullable=False, index=True)
+    gender = Column(String, nullable=True)
+    date_of_birth = Column(String, nullable=True)  # keep as provided format (e.g., DD/MM/YYYY)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class Patient(Base):
     __tablename__ = "patients"
 
