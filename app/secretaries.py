@@ -55,36 +55,79 @@ def secretary_login_code(
         # Generate secretary_id in format "S-{clinic_id}"
         formatted_secretary_id = f"S-{secretary.clinic_id}"
 
-        # محاولة استخراج receiving_patients من دكتور له نفس clinic_id داخل general_info.clinic_id
+        # محاولة استخراج receiving_patients بدقة أعلى:
+        # 1) نحاول Doctor.id == clinic_id مباشرة (الأكثر دقة عندك)
+        # 2) وإلا نختار أفضل مطابقة على general_info.clinic_id (الأولوية لمطابقة الاسم ثم الأحدث تحديثاً)
         receiving_patients = None
-        doctors = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).all()
         trans = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
-        for doc in doctors:
-            raw = doc.profile_json
+
+        def _parse_rp_from_profile(raw: str | None) -> int | None:
             if not raw:
-                continue
+                return None
             try:
                 pobj = json.loads(raw)
             except Exception:
-                continue
+                return None
             if not isinstance(pobj, dict):
-                continue
+                return None
             gi = pobj.get("general_info", {})
             if not isinstance(gi, dict):
-                continue
-            cid = gi.get("clinic_id")
-            # تطابق clinic_id رقماً أو نصاً
+                return None
+            rp = gi.get("receiving_patients") or gi.get("receivingPatients") or gi.get("receiving_patients_count")
+            if rp is None:
+                return None
             try:
-                if cid is not None and int(str(cid).translate(trans).strip()) == int(secretary.clinic_id):
-                    rp = gi.get("receiving_patients") or gi.get("receivingPatients") or gi.get("receiving_patients_count")
-                    if rp is not None:
-                        try:
-                            receiving_patients = int(str(rp).translate(trans).strip())
-                        except Exception:
-                            receiving_patients = None
-                    break
+                return int(str(rp).translate(trans).strip())
             except Exception:
-                continue
+                return None
+
+        # الخطوة 1: Doctor.id == clinic_id
+        doc_by_id = db.query(models.Doctor).filter(models.Doctor.id == int(secretary.clinic_id)).first()
+        if doc_by_id:
+            rp_val = _parse_rp_from_profile(doc_by_id.profile_json)
+            if rp_val is not None:
+                receiving_patients = rp_val
+        
+        # الخطوة 2 (fallback): البحث بحسب general_info.clinic_id مع أفضلية الاسم ثم الأحدث
+        if receiving_patients is None:
+            doctors = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).all()
+            best = None  # (name_match: bool, updated_at_ts: float, rp: int)
+            target_cid = int(secretary.clinic_id)
+            sec_name_norm = (secretary.doctor_name or "").strip()
+            for doc in doctors:
+                raw = doc.profile_json
+                if not raw:
+                    continue
+                try:
+                    pobj = json.loads(raw)
+                except Exception:
+                    continue
+                if not isinstance(pobj, dict):
+                    continue
+                gi = pobj.get("general_info", {})
+                if not isinstance(gi, dict):
+                    continue
+                cid = gi.get("clinic_id")
+                try:
+                    if cid is None:
+                        continue
+                    cid_norm = int(str(cid).translate(trans).strip())
+                except Exception:
+                    continue
+                if cid_norm != target_cid:
+                    continue
+                rp_val = _parse_rp_from_profile(raw)
+                if rp_val is None:
+                    continue
+                # أولوية مطابقة الاسم، ثم الأحدث تحديثاً
+                doc_name_norm = str(gi.get("doctor_name") or doc.name or "").strip()
+                name_match = (doc_name_norm == sec_name_norm and sec_name_norm != "")
+                updated_ts = (doc.updated_at.timestamp() if getattr(doc, "updated_at", None) else 0.0)
+                score = (1 if name_match else 0, updated_ts)
+                if best is None or score > (best[0], best[1]):
+                    best = (score[0], score[1], rp_val)
+            if best is not None:
+                receiving_patients = best[2]
 
         return schemas.SecretaryLoginResponse(
             status="successfuly",
