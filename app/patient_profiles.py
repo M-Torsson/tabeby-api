@@ -64,3 +64,38 @@ def create_or_update_patient_profile(
         created_at=prof.created_at,
         updated_at=prof.updated_at,
     )
+
+
+@router.get("/patient/profile/{user_server_id}", response_model=schemas.PatientProfileResponse)
+def get_patient_profile(
+    user_server_id: str,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    # allow formats: P-<id> or just <id>
+    raw = user_server_id.strip()
+    if raw.upper().startswith("P-"):
+        raw = raw.split("-", 1)[1]
+    try:
+        ua_id = int(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid user_server_id format; expected P-<id> or <id>")
+
+    ua = db.query(models.UserAccount).filter_by(id=ua_id).first()
+    if not ua:
+        raise HTTPException(status_code=404, detail="user_account not found")
+
+    prof = db.query(models.PatientProfile).filter_by(user_account_id=ua.id).first()
+    if not prof:
+        raise HTTPException(status_code=404, detail="patient_profile not found")
+
+    return schemas.PatientProfileResponse(
+        id=prof.id,
+        user_server_id=f"P-{ua.id}",
+        patient_name=prof.patient_name,
+        phone_number=prof.phone_number,
+        gender=prof.gender,
+        date_of_birth=prof.date_of_birth,
+        created_at=prof.created_at,
+        updated_at=prof.updated_at,
+    )
