@@ -1,11 +1,14 @@
 from __future__ import annotations
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from .database import SessionLocal
 from . import models, schemas
 from .doctors import require_profile_secret
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import asyncio
+import hashlib
 
 # حالة الحالة الإنجليزية إلى العربية (أساسية قابلة للتوسعة)
 STATUS_MAP = {
@@ -443,34 +446,26 @@ def add_day(payload: schemas.AddDayRequest, db: Session = Depends(get_db), _: No
     )
 
 
-@router.get("/booking_days", response_model=schemas.BookingDaysFullResponse)
-def get_booking_days(clinic_id: int, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
-    """إرجاع كل الأيام (days_json) المخزنة لعيادة محددة.
-
-    استعلام بسيط يعتمد على clinic_id.
-    يعيد نفس البنية المخزنة بدون تعديل.
-    """
+def _load_days_raw(db: Session, clinic_id: int) -> dict:
     bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == clinic_id).first()
     if not bt:
         raise HTTPException(status_code=404, detail="لا يوجد جدول حجز لهذه العيادة")
     try:
-        days = json.loads(bt.days_json) if bt.days_json else {}
+        return json.loads(bt.days_json) if bt.days_json else {}
     except Exception:
-        days = {}
+        return {}
 
-    # 1) إزالة الحقول القديمة inline_next إن وجدت
-    # 2) تنظيف أي مفاتيح clinic_id / date داخل كل مريض
-    # 3) ترتيب التواريخ تصاعدياً قبل الإرجاع
-    cleaned_days = {}
-    for d_key in sorted(days.keys()):  # الترتيب التصاعدي YYYY-MM-DD
+
+def _clean_days(days: dict) -> dict:
+    # إزالة inline_next، وتنظيف clinic_id/date داخل المرضى، وترتيب المفاتيح
+    cleaned_days: dict = {}
+    for d_key in sorted(days.keys()):
         d_val = days.get(d_key)
         if not isinstance(d_val, dict):
             cleaned_days[d_key] = d_val
             continue
-        # إزالة inline_next إن وجد
         if "inline_next" in d_val:
             d_val = {k: v for k, v in d_val.items() if k != "inline_next"}
-        # تنظيف المرضى
         patients = d_val.get("patients")
         if isinstance(patients, list):
             new_list = []
@@ -481,8 +476,71 @@ def get_booking_days(clinic_id: int, db: Session = Depends(get_db), _: None = De
                 new_list.append(p)
             d_val["patients"] = new_list
         cleaned_days[d_key] = d_val
+    return cleaned_days
 
-    return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cleaned_days)
+
+@router.get("/booking_days", response_model=schemas.BookingDaysFullResponse)
+async def get_booking_days(
+    clinic_id: int,
+    request: Request,
+    stream: bool = False,
+    heartbeat: int = 15,
+    timeout: int = 300,
+    poll_interval: float = 1.0,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret),
+):
+    """إرجاع الأيام كـ JSON كما هو معتاد، أو كبث SSE إذا طُلب.
+
+    - الوضع الافتراضي: JSON (سلوك قديم بدون تغيير)
+    - إذا stream=true أو كان Accept يحتوي text/event-stream: بث SSE
+    """
+
+    wants_sse = stream or ("text/event-stream" in (request.headers.get("accept", "").lower()))
+    if not wants_sse:
+        days = _load_days_raw(db, clinic_id)
+        cleaned = _clean_days(days)
+        return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cleaned)
+
+    async def event_gen():
+        # لقطة أولية + تحديثات عند تغيّر الهاش + ping دوري
+        try:
+            days = _load_days_raw(db, clinic_id)
+            cleaned = _clean_days(days)
+            last_hash = hashlib.sha1(json.dumps(cleaned, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+            payload = json.dumps({"clinic_id": clinic_id, "days": cleaned, "hash": last_hash}, ensure_ascii=False)
+            yield f"event: snapshot\ndata: {payload}\n\n"
+
+            start = datetime.now(timezone.utc)
+            last_ping = start
+            while True:
+                # timeout
+                if (datetime.now(timezone.utc) - start).total_seconds() > timeout:
+                    yield "event: bye\ndata: timeout\n\n"
+                    break
+                # تحقق دوري للتغيّر
+                await asyncio.sleep(poll_interval)
+                days = _load_days_raw(db, clinic_id)
+                cleaned = _clean_days(days)
+                cur_hash = hashlib.sha1(json.dumps(cleaned, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+                if cur_hash != last_hash:
+                    last_hash = cur_hash
+                    payload = json.dumps({"clinic_id": clinic_id, "days": cleaned, "hash": last_hash}, ensure_ascii=False)
+                    yield f"event: update\ndata: {payload}\n\n"
+                # ping
+                if (datetime.now(timezone.utc) - last_ping).total_seconds() >= heartbeat:
+                    last_ping = datetime.now(timezone.utc)
+                    yield f"event: ping\ndata: {json.dumps({'ts': last_ping.timestamp()})}\n\n"
+        except Exception as e:
+            err = json.dumps({"error": str(e)})
+            yield f"event: error\ndata: {err}\n\n"
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(event_gen(), media_type="text/event-stream", headers=headers)
 
 
 @router.post("/edit_patient_booking", response_model=schemas.EditPatientBookingResponse)
