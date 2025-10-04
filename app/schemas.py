@@ -445,7 +445,8 @@ class BookingArchivesListResponse(BaseModel):
 # ===== Simple All Days (dates only) =====
 # مخصص لواجهة ترجع فقط قائمة التواريخ بدون تفاصيل أخرى
 class AllDaysResponse(BaseModel):
-    dates: list[str]
+    clinic_id: int
+    days: dict  # key=date string -> day object (capacity_total, patients, ...)
 
 class CloseTableRequest(BaseModel):
     clinic_id: int

@@ -739,20 +739,48 @@ def list_booking_archives(
 
 @router.get("/all_days", response_model=schemas.AllDaysResponse)
 def get_all_days(clinic_id: int, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
-    """يعيد فقط قائمة التواريخ المؤرشفة (table_date) لعيادة معينة بدون أي تفاصيل إضافية.
+    """إرجاع جميع الأيام المؤرشفة كقاموس days يشبه بنية جدول الحجز الأصلية.
 
-    باراميتر: clinic_id (Query)
-    مثال: GET /api/all_days?clinic_id=123
+    الشكل:
+    {
+      "clinic_id": <id>,
+      "days": {
+         "2025-10-04": {
+            "capacity_total": 25,
+            "capacity_served": 3,
+            "capacity_cancelled": 1,
+            "patients": [...]
+         },
+         ...
+      }
+    }
     """
     rows = (
-        db.query(models.BookingArchive.table_date)
+        db.query(models.BookingArchive)
         .filter(models.BookingArchive.clinic_id == clinic_id)
-        .order_by(models.BookingArchive.table_date.desc())
+        .order_by(models.BookingArchive.table_date.asc())  # ترتيب تصاعدي زمني
         .all()
     )
-    # rows تكون قائمة كائنات فيها خاصية table_date
-    dates = [r.table_date for r in rows if getattr(r, 'table_date', None)]
-    return schemas.AllDaysResponse(dates=dates)
+    days: dict[str, dict] = {}
+    for r in rows:
+        try:
+            patients = json.loads(r.patients_json) if r.patients_json else []
+            if not isinstance(patients, list):
+                patients = []
+        except Exception:
+            patients = []
+        # حساب capacity_used من عدد المرضى (اختياري)
+        capacity_used = len([p for p in patients if isinstance(p, dict)])
+        days[r.table_date] = {
+            "capacity_total": r.capacity_total,
+            "capacity_served": r.capacity_served,
+            "capacity_cancelled": r.capacity_cancelled,
+            "capacity_used": capacity_used,
+            # status غير مخزنة في الأرشيف حالياً؛ يمكن استنتاجها (افتراض open)
+            "status": "open",
+            "patients": patients,
+        }
+    return schemas.AllDaysResponse(clinic_id=clinic_id, days=days)
 
 
 @router.post("/close_table", response_model=schemas.CloseTableResponse)
