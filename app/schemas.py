@@ -426,6 +426,27 @@ class SaveTableRequest(BaseModel):
 class SaveTableResponse(BaseModel):
     status: str
 
+
+# ===== Booking Archives Fetch =====
+class BookingArchiveItem(BaseModel):
+    id: int
+    clinic_id: int
+    table_date: str
+    capacity_total: int
+    capacity_served: int | None = None
+    capacity_cancelled: int | None = None
+    patients: list[dict] = []  # مفكوك من patients_json
+
+class BookingArchivesListResponse(BaseModel):
+    clinic_id: int
+    items: list[BookingArchiveItem]
+
+
+# ===== Simple All Days (dates only) =====
+# مخصص لواجهة ترجع فقط قائمة التواريخ بدون تفاصيل أخرى
+class AllDaysResponse(BaseModel):
+    dates: list[str]
+
 class CloseTableRequest(BaseModel):
     clinic_id: int
     date: str  # التاريخ المراد حذفه

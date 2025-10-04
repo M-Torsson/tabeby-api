@@ -680,6 +680,81 @@ def save_table(payload: schemas.SaveTableRequest, db: Session = Depends(get_db),
         return schemas.SaveTableResponse(status="تم إنشاء الأرشيف بنجاح")
 
 
+@router.get("/booking_archives/{clinic_id}", response_model=schemas.BookingArchivesListResponse)
+def list_booking_archives(
+    clinic_id: int,
+    from_date: str | None = None,  # YYYY-MM-DD
+    to_date: str | None = None,    # YYYY-MM-DD
+    limit: int | None = None,      # حد أقصى لعدد الأيام المرجعة
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret),
+):
+    """إرجاع الأيام المؤرشفة لعيادة معينة.
+
+    باراميترات اختيارية:
+    - from_date: بداية نطاق التاريخ (شامل)
+    - to_date: نهاية نطاق التاريخ (شامل)
+    - limit: عدد السجلات القصوى بعد الترتيب تنازلياً
+    """
+    q = db.query(models.BookingArchive).filter(models.BookingArchive.clinic_id == clinic_id)
+    def _valid(d: str) -> bool:
+        try:
+            datetime.strptime(d, "%Y-%m-%d")
+            return True
+        except Exception:
+            return False
+    if from_date:
+        if not _valid(from_date):
+            raise HTTPException(status_code=400, detail="صيغة from_date غير صحيحة")
+        q = q.filter(models.BookingArchive.table_date >= from_date)
+    if to_date:
+        if not _valid(to_date):
+            raise HTTPException(status_code=400, detail="صيغة to_date غير صحيحة")
+        q = q.filter(models.BookingArchive.table_date <= to_date)
+    q = q.order_by(models.BookingArchive.table_date.desc())
+    if limit and limit > 0:
+        q = q.limit(limit)
+    rows = q.all()
+    items: list[schemas.BookingArchiveItem] = []
+    for r in rows:
+        try:
+            patients = json.loads(r.patients_json) if r.patients_json else []
+            if not isinstance(patients, list):
+                patients = []
+        except Exception:
+            patients = []
+        items.append(
+            schemas.BookingArchiveItem(
+                id=r.id,
+                clinic_id=r.clinic_id,
+                table_date=r.table_date,
+                capacity_total=r.capacity_total,
+                capacity_served=r.capacity_served,
+                capacity_cancelled=r.capacity_cancelled,
+                patients=patients,
+            )
+        )
+    return schemas.BookingArchivesListResponse(clinic_id=clinic_id, items=items)
+
+
+@router.get("/all_days", response_model=schemas.AllDaysResponse)
+def get_all_days(clinic_id: int, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
+    """يعيد فقط قائمة التواريخ المؤرشفة (table_date) لعيادة معينة بدون أي تفاصيل إضافية.
+
+    باراميتر: clinic_id (Query)
+    مثال: GET /api/all_days?clinic_id=123
+    """
+    rows = (
+        db.query(models.BookingArchive.table_date)
+        .filter(models.BookingArchive.clinic_id == clinic_id)
+        .order_by(models.BookingArchive.table_date.desc())
+        .all()
+    )
+    # rows تكون قائمة كائنات فيها خاصية table_date
+    dates = [r.table_date for r in rows if getattr(r, 'table_date', None)]
+    return schemas.AllDaysResponse(dates=dates)
+
+
 @router.post("/close_table", response_model=schemas.CloseTableResponse)
 def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
     """حذف تاريخ من days_json:
