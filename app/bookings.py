@@ -785,9 +785,9 @@ def get_all_days(clinic_id: int, db: Session = Depends(get_db), _: None = Depend
 
 @router.post("/close_table", response_model=schemas.CloseTableResponse)
 def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
-    """حذف تاريخ من days_json:
-        - إذا كان هناك تاريخ واحد فقط سيتم حذف السجل بالكامل.
-        - إذا أكثر من تاريخ نحذف التاريخ المحدد فقط.
+    """تغيير حالة يوم معين إلى "closed" بدلاً من حذفه.
+    
+    يبحث عن التاريخ المحدد ويغيّر status إلى "closed" مباشرة.
     """
     bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
     if not bt:
@@ -797,26 +797,20 @@ def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db
     except Exception:
         days = {}
 
-    # استبعد أي مفاتيح أرشيف (_archived_) من العد المنطقي لأيام الحجز
-    booking_day_keys = [k for k in days.keys() if not k.startswith("_archived_")]
     if payload.date not in days:
         raise HTTPException(status_code=404, detail="التاريخ غير موجود")
 
-    # حذف التاريخ المطلوب
-    if payload.date in days:
-        days.pop(payload.date)
+    day_obj = days[payload.date]
+    if not isinstance(day_obj, dict):
+        raise HTTPException(status_code=400, detail="بنية اليوم غير صالحة")
 
-    # إعادة حساب الأيام الفعلية بعد الحذف
-    remaining_booking_days = [k for k in days.keys() if not k.startswith("_archived_")]
-
-    if not remaining_booking_days:
-        # حذف السجل كاملاً
-        db.delete(bt)
-        db.commit()
-        return schemas.CloseTableResponse(status="تم حذف القائمة بالكامل", removed_all=True)
+    # تغيير الحالة إلى closed
+    day_obj["status"] = "closed"
+    days[payload.date] = day_obj
 
     # تحديث السجل
     bt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(bt)
     db.commit()
-    return schemas.CloseTableResponse(status="تم حذف التاريخ بنجاح", removed_all=False)
+    
+    return schemas.CloseTableResponse(status="تم إغلاق اليوم بنجاح", removed_all=False)
