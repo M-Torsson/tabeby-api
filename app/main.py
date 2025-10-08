@@ -14,6 +14,7 @@ from .secretaries import router as secretaries_router
 from .patients_register import router as patients_router
 from .patient_profiles import router as patient_profiles_router
 from .bookings import router as bookings_router
+from .golden_bookings import router as golden_bookings_router
 from .ads import router as ads_router
 from fastapi.middleware.cors import CORSMiddleware
 from .firebase_init import ensure_firebase_initialized
@@ -135,6 +136,7 @@ app.include_router(secretaries_router)
 app.include_router(patients_router)
 app.include_router(patient_profiles_router)
 app.include_router(bookings_router)
+app.include_router(golden_bookings_router)
 
 # راوتر توافق لطلبـات قديمة تبدأ بـ /backend (مخفى عن الوثائق)
 from .auth import get_current_admin
@@ -153,6 +155,7 @@ backend_router.include_router(secretaries_router)
 backend_router.include_router(patients_router)
 backend_router.include_router(patient_profiles_router)
 backend_router.include_router(bookings_router)
+backend_router.include_router(golden_bookings_router)
 
 # /backend/me  => /users/me
 def _light_admin(admin_id: int):

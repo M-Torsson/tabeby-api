@@ -455,3 +455,24 @@ class CloseTableRequest(BaseModel):
 class CloseTableResponse(BaseModel):
     status: str
     removed_all: bool
+
+
+# ===== Golden Book Schemas =====
+class GoldenTableCreateRequest(BaseModel):
+    clinic_id: int
+    days: dict  # بنفس شكل booking days
+
+class GoldenTableCreateResponse(BaseModel):
+    status: str
+    message: str
+
+class GoldenBookingRequest(BaseModel):
+    clinic_id: int
+    date: str  # YYYY-MM-DD
+    patient_id: str
+    name: str
+    phone: str
+
+class GoldenBookingResponse(BaseModel):
+    message: str
+    code: str  # 4 digits

@@ -297,3 +297,18 @@ class BookingArchive(Base):
     __table_args__ = (
         Index("ix_booking_archives_clinic_date", "clinic_id", "table_date"),
     )
+
+
+# ===== Golden Booking Table (separate from regular bookings) =====
+
+class GoldenBookingTable(Base):
+    __tablename__ = "golden_booking_tables"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    clinic_id = Column(Integer, index=True, nullable=False)
+    days_json = Column(Text, nullable=False)  # golden book days structure
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (
+        Index("ix_golden_booking_tables_clinic", "clinic_id"),
+    )
