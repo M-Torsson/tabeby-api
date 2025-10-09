@@ -262,9 +262,12 @@ def close_table_gold(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    """تغيير حالة يوم Golden معين إلى "closed" بدلاً من حذفه.
+    """تغيير حالة يوم Golden إلى "closed" ثم حذفه من الجدول.
     
-    مشابه لـ close_table العادي لكن للـ Golden Book.
+    الخطوات:
+    1. تغيير status إلى "closed"
+    2. حفظ التغيير
+    3. حذف اليوم من days_json
     """
     gt = db.query(models.GoldenBookingTable).filter(
         models.GoldenBookingTable.clinic_id == payload.clinic_id
@@ -285,16 +288,30 @@ def close_table_gold(
     if not isinstance(day_obj, dict):
         raise HTTPException(status_code=400, detail="بنية اليوم غير صالحة")
 
-    # تغيير الحالة إلى closed
+    # الخطوة 1: تغيير الحالة إلى closed
     day_obj["status"] = "closed"
     days[payload.date] = day_obj
+    
+    # حفظ التغيير مؤقتاً (لتسجيل أن اليوم أُغلق)
+    gt.days_json = json.dumps(days, ensure_ascii=False)
+    db.add(gt)
+    db.commit()
 
-    # تحديث السجل
+    # الخطوة 2: حذف اليوم من الجدول
+    days.pop(payload.date)
+    
+    if not days:
+        # حذف السجل كاملاً إذا لم يتبق أيام
+        db.delete(gt)
+        db.commit()
+        return schemas.CloseTableResponse(status="تم إغلاق وحذف يوم Golden، وحذف القائمة بالكامل", removed_all=True)
+    
+    # تحديث السجل بعد الحذف
     gt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(gt)
     db.commit()
     
-    return schemas.CloseTableResponse(status="تم إغلاق يوم Golden بنجاح", removed_all=False)
+    return schemas.CloseTableResponse(status="تم إغلاق وحذف يوم Golden بنجاح", removed_all=False)
 
 
 @router.post("/edit_patient_gold_booking", response_model=schemas.EditPatientBookingResponse)

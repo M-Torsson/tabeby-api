@@ -785,9 +785,12 @@ def get_all_days(clinic_id: int, db: Session = Depends(get_db), _: None = Depend
 
 @router.post("/close_table", response_model=schemas.CloseTableResponse)
 def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
-    """تغيير حالة يوم معين إلى "closed" بدلاً من حذفه.
+    """تغيير حالة يوم إلى "closed" ثم حذفه من الجدول.
     
-    يبحث عن التاريخ المحدد ويغيّر status إلى "closed" مباشرة.
+    الخطوات:
+    1. تغيير status إلى "closed"
+    2. حفظ التغيير
+    3. حذف اليوم من days_json
     """
     bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
     if not bt:
@@ -804,13 +807,30 @@ def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db
     if not isinstance(day_obj, dict):
         raise HTTPException(status_code=400, detail="بنية اليوم غير صالحة")
 
-    # تغيير الحالة إلى closed
+    # الخطوة 1: تغيير الحالة إلى closed
     day_obj["status"] = "closed"
     days[payload.date] = day_obj
+    
+    # حفظ التغيير مؤقتاً (لتسجيل أن اليوم أُغلق)
+    bt.days_json = json.dumps(days, ensure_ascii=False)
+    db.add(bt)
+    db.commit()
 
-    # تحديث السجل
+    # الخطوة 2: حذف اليوم من الجدول
+    days.pop(payload.date)
+    
+    # استبعاد المفاتيح المؤرشفة من العد
+    remaining_booking_days = [k for k in days.keys() if not k.startswith("_archived_")]
+
+    if not remaining_booking_days:
+        # حذف السجل كاملاً إذا لم يتبق أيام
+        db.delete(bt)
+        db.commit()
+        return schemas.CloseTableResponse(status="تم إغلاق وحذف اليوم، وحذف القائمة بالكامل", removed_all=True)
+    
+    # تحديث السجل بعد الحذف
     bt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(bt)
     db.commit()
     
-    return schemas.CloseTableResponse(status="تم إغلاق اليوم بنجاح", removed_all=False)
+    return schemas.CloseTableResponse(status="تم إغلاق وحذف اليوم بنجاح", removed_all=False)
