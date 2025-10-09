@@ -8,6 +8,15 @@ from .database import SessionLocal
 from . import models, schemas
 from .doctors import require_profile_secret
 
+# خريطة تحويل الحالات من إنجليزي إلى عربي
+STATUS_MAP = {
+    "booked": "تم الحجز",
+    "served": "تمت المعاينة",
+    "no_show": "لم يحضر",
+    "cancelled": "ملغى",
+    "in_progress": "جاري المعاينة",
+}
+
 router = APIRouter(prefix="/api", tags=["Golden Bookings"])
 
 def get_db():
@@ -286,3 +295,78 @@ def close_table_gold(
     db.commit()
     
     return schemas.CloseTableResponse(status="تم إغلاق يوم Golden بنجاح", removed_all=False)
+
+
+@router.post("/edit_patient_gold_booking", response_model=schemas.EditPatientBookingResponse)
+def edit_patient_gold_booking(
+    payload: schemas.EditPatientBookingRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """تعديل حالة مريض في Golden Book بالاعتماد على booking_id.
+
+    المنطق:
+      - booking_id يحتوي التاريخ بالشكل G-<clinic>-<YYYYMMDD>-<patient_id>
+      - نستخرج منه جزء التاريخ (المقطع الثالث بعد التقسيم)
+      - نبحث داخل ذلك اليوم عن المريض الذي يحمل نفس booking_id
+      - نحدّث status فقط
+    """
+    booking_id = payload.booking_id
+    parts = booking_id.split('-')
+    if len(parts) < 4:
+        raise HTTPException(status_code=400, detail="booking_id غير صالح")
+    
+    # الصيغة المتوقعة: G-clinicId-YYYYMMDD-patient_id
+    date_compact = parts[2]
+    if len(date_compact) != 8 or not date_compact.isdigit():
+        raise HTTPException(status_code=400, detail="جزء التاريخ داخل booking_id غير صالح")
+    date_key = f"{date_compact[0:4]}-{date_compact[4:6]}-{date_compact[6:8]}"
+
+    gt = db.query(models.GoldenBookingTable).filter(
+        models.GoldenBookingTable.clinic_id == payload.clinic_id
+    ).first()
+    
+    if not gt:
+        raise HTTPException(status_code=404, detail="لا يوجد جدول Golden لهذه العيادة")
+
+    try:
+        days = json.loads(gt.days_json) if gt.days_json else {}
+    except Exception:
+        days = {}
+
+    day_obj = days.get(date_key)
+    if not isinstance(day_obj, dict):
+        raise HTTPException(status_code=404, detail="اليوم المستخرج من booking_id غير موجود")
+
+    plist = day_obj.get("patients")
+    if not isinstance(plist, list):
+        raise HTTPException(status_code=404, detail="لا توجد قائمة مرضى لهذا اليوم")
+
+    normalized_status = STATUS_MAP.get(payload.status, payload.status)
+
+    target_index = None
+    old_status = None
+    for idx, p in enumerate(plist):
+        if isinstance(p, dict) and p.get("booking_id") == booking_id:
+            target_index = idx
+            old_status = p.get("status")
+            break
+
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="الحجز الذهبي غير موجود داخل هذا التاريخ")
+
+    plist[target_index]["status"] = normalized_status
+    day_obj["patients"] = plist
+    days[date_key] = day_obj
+
+    gt.days_json = json.dumps(days, ensure_ascii=False)
+    db.add(gt)
+    db.commit()
+
+    return schemas.EditPatientBookingResponse(
+        message="تم تحديث حالة الحجز الذهبي بنجاح",
+        clinic_id=payload.clinic_id,
+        booking_id=booking_id,
+        old_status=old_status,
+        new_status=normalized_status,
+    )
