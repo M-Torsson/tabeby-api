@@ -166,20 +166,43 @@ def get_golden_booking_days(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    """إرجاع كل أيام Golden Book لعيادة معينة."""
+    """إرجاع كل أيام Golden Book لعيادة معينة.
+    
+    مشابه تماماً لـ /booking_days - يرجع 404 إذا لم يوجد جدول.
+    """
     gt = db.query(models.GoldenBookingTable).filter(
         models.GoldenBookingTable.clinic_id == clinic_id
     ).first()
     
     if not gt:
-        return {"clinic_id": clinic_id, "days": {}}
+        raise HTTPException(status_code=404, detail="لا يوجد جدول Golden لهذه العيادة")
     
     try:
         days = json.loads(gt.days_json) if gt.days_json else {}
     except Exception:
         days = {}
     
-    return {"clinic_id": clinic_id, "days": days}
+    # تنظيف البيانات (إزالة حقول زائدة إن وجدت)
+    cleaned_days: dict = {}
+    for d_key in sorted(days.keys()):
+        d_val = days.get(d_key)
+        if not isinstance(d_val, dict):
+            cleaned_days[d_key] = d_val
+            continue
+        # إزالة حقول داخلية إن وجدت
+        patients = d_val.get("patients")
+        if isinstance(patients, list):
+            new_list = []
+            for p in patients:
+                if isinstance(p, dict):
+                    # إزالة clinic_id و date من بيانات المريض إن كانت موجودة
+                    if "clinic_id" in p or "date" in p:
+                        p = {k: v for k, v in p.items() if k not in ("clinic_id", "date")}
+                new_list.append(p)
+            d_val["patients"] = new_list
+        cleaned_days[d_key] = d_val
+    
+    return {"clinic_id": clinic_id, "days": cleaned_days}
 
 
 @router.post("/save_table_gold", response_model=schemas.SaveTableResponse)
