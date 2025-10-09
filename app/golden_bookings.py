@@ -156,7 +156,15 @@ def patient_golden_booking(
     
     return schemas.GoldenBookingResponse(
         message=f"تم الحجز بنجاح بأسم: {payload.name}",
-        code=new_code
+        code=new_code,
+        booking_id=booking_id,
+        token=next_token,
+        capacity_used=capacity_used + 1,
+        capacity_total=capacity_total,
+        status="تم الحجز",
+        clinic_id=payload.clinic_id,
+        date=payload.date,
+        patient_id=payload.patient_id
     )
 
 

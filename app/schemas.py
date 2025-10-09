@@ -476,3 +476,11 @@ class GoldenBookingRequest(BaseModel):
 class GoldenBookingResponse(BaseModel):
     message: str
     code: str  # 4 digits
+    booking_id: str
+    token: int
+    capacity_used: int
+    capacity_total: int
+    status: str
+    clinic_id: int
+    date: str
+    patient_id: str | None = None
