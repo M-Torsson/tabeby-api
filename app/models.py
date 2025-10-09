@@ -312,3 +312,23 @@ class GoldenBookingTable(Base):
     __table_args__ = (
         Index("ix_golden_booking_tables_clinic", "clinic_id"),
     )
+
+
+# ===== Golden Booking Archives =====
+
+class GoldenBookingArchive(Base):
+    __tablename__ = "golden_booking_archives"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    clinic_id = Column(Integer, index=True, nullable=False)
+    table_date = Column(String, nullable=False, index=True)  # YYYY-MM-DD
+    capacity_total = Column(Integer, nullable=False)
+    capacity_served = Column(Integer, nullable=True)
+    capacity_cancelled = Column(Integer, nullable=True)
+    patients_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_golden_booking_archives_clinic_date", "clinic_id", "table_date"),
+    )

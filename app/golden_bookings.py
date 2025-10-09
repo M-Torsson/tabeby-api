@@ -171,3 +171,118 @@ def get_golden_booking_days(
         days = {}
     
     return {"clinic_id": clinic_id, "days": days}
+
+
+@router.post("/save_table_gold", response_model=schemas.SaveTableResponse)
+def save_table_gold(
+    payload: schemas.SaveTableRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """أرشفة يوم Golden Book في جدول مستقل golden_booking_archives.
+
+    مشابه لـ save_table العادي لكن للـ Golden Book.
+    """
+    # تحقق من الصيغة البسيطة للتاريخ
+    try:
+        datetime.strptime(payload.table_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="صيغة التاريخ غير صحيحة، يجب YYYY-MM-DD")
+
+    # إذا لم تُرسل الحقول سنستخرجها من golden_booking_tables
+    cap_total = payload.capacity_total
+    cap_served = payload.capacity_served
+    cap_cancelled = payload.capacity_cancelled
+    patients_list = payload.patients
+
+    if cap_total is None or patients_list is None:
+        gt = db.query(models.GoldenBookingTable).filter(
+            models.GoldenBookingTable.clinic_id == payload.clinic_id
+        ).first()
+        if not gt:
+            raise HTTPException(status_code=404, detail="لا يوجد جدول Golden لاستخراج البيانات")
+        try:
+            days = json.loads(gt.days_json) if gt.days_json else {}
+        except Exception:
+            days = {}
+        day_obj = days.get(payload.table_date)
+        if not isinstance(day_obj, dict):
+            raise HTTPException(status_code=404, detail="لا يوجد يوم مطابق في الجدول Golden")
+        # استنتاج البيانات
+        if cap_total is None:
+            cap_total = day_obj.get("capacity_total") or 0
+        plist = day_obj.get("patients") if isinstance(day_obj.get("patients"), list) else []
+        if patients_list is None:
+            patients_list = plist
+        if cap_served is None:
+            cap_served = sum(1 for p in plist if isinstance(p, dict) and p.get("status") in ("تمت المعاينة", "served"))
+        if cap_cancelled is None:
+            cap_cancelled = sum(1 for p in plist if isinstance(p, dict) and p.get("status") in ("ملغى", "cancelled"))
+
+    existing = (
+        db.query(models.GoldenBookingArchive)
+        .filter(models.GoldenBookingArchive.clinic_id == payload.clinic_id,
+                models.GoldenBookingArchive.table_date == payload.table_date)
+        .first()
+    )
+    if existing:
+        existing.capacity_total = cap_total
+        existing.capacity_served = cap_served
+        existing.capacity_cancelled = cap_cancelled
+        existing.patients_json = json.dumps(patients_list, ensure_ascii=False)
+        db.add(existing)
+        db.commit()
+        return schemas.SaveTableResponse(status="تم تحديث أرشيف Golden بنجاح")
+    else:
+        arch = models.GoldenBookingArchive(
+            clinic_id=payload.clinic_id,
+            table_date=payload.table_date,
+            capacity_total=cap_total or 0,
+            capacity_served=cap_served,
+            capacity_cancelled=cap_cancelled,
+            patients_json=json.dumps(patients_list or [], ensure_ascii=False)
+        )
+        db.add(arch)
+        db.commit()
+        return schemas.SaveTableResponse(status="تم إنشاء أرشيف Golden بنجاح")
+
+
+@router.post("/close_table_gold", response_model=schemas.CloseTableResponse)
+def close_table_gold(
+    payload: schemas.CloseTableRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """تغيير حالة يوم Golden معين إلى "closed" بدلاً من حذفه.
+    
+    مشابه لـ close_table العادي لكن للـ Golden Book.
+    """
+    gt = db.query(models.GoldenBookingTable).filter(
+        models.GoldenBookingTable.clinic_id == payload.clinic_id
+    ).first()
+    
+    if not gt:
+        raise HTTPException(status_code=404, detail="لا يوجد جدول Golden لهذه العيادة")
+    
+    try:
+        days = json.loads(gt.days_json) if gt.days_json else {}
+    except Exception:
+        days = {}
+
+    if payload.date not in days:
+        raise HTTPException(status_code=404, detail="التاريخ غير موجود في Golden table")
+
+    day_obj = days[payload.date]
+    if not isinstance(day_obj, dict):
+        raise HTTPException(status_code=400, detail="بنية اليوم غير صالحة")
+
+    # تغيير الحالة إلى closed
+    day_obj["status"] = "closed"
+    days[payload.date] = day_obj
+
+    # تحديث السجل
+    gt.days_json = json.dumps(days, ensure_ascii=False)
+    db.add(gt)
+    db.commit()
+    
+    return schemas.CloseTableResponse(status="تم إغلاق يوم Golden بنجاح", removed_all=False)
