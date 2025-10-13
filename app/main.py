@@ -75,7 +75,160 @@ def get_db():
 # فحص الصحة
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Health check شامل يفحص جميع مكونات النظام"""
+    from datetime import datetime as dt
+    health_status = {
+        "status": "healthy",
+        "timestamp": dt.utcnow().isoformat() + "Z",
+        "checks": {}
+    }
+    
+    # 1. فحص قاعدة البيانات
+    try:
+        db = SessionLocal()
+        db.execute("SELECT 1")
+        db.close()
+        health_status["checks"]["database"] = {
+            "status": "ok",
+            "message": "Database connection successful"
+        }
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["checks"]["database"] = {
+            "status": "error",
+            "message": f"Database connection failed: {str(e)}"
+        }
+    
+    # 2. فحص Firebase
+    try:
+        ensure_firebase_initialized()
+        from firebase_admin import auth as firebase_auth
+        # محاولة بسيطة للتحقق من الاتصال
+        firebase_auth.list_users(max_results=1)
+        health_status["checks"]["firebase"] = {
+            "status": "ok",
+            "message": "Firebase connection successful"
+        }
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["checks"]["firebase"] = {
+            "status": "error",
+            "message": f"Firebase connection failed: {str(e)}"
+        }
+    
+    # 3. فحص جداول الحجز
+    try:
+        db = SessionLocal()
+        # فحص BookingTable
+        booking_count = db.query(models.BookingTable).count()
+        # فحص GoldenBookingTable
+        golden_count = db.query(models.GoldenBookingTable).count()
+        # فحص BookingArchive
+        archive_count = db.query(models.BookingArchive).count()
+        # فحص GoldenBookingArchive
+        golden_archive_count = db.query(models.GoldenBookingArchive).count()
+        db.close()
+        
+        health_status["checks"]["tables"] = {
+            "status": "ok",
+            "message": "All tables accessible",
+            "details": {
+                "booking_tables": booking_count,
+                "golden_booking_tables": golden_count,
+                "booking_archives": archive_count,
+                "golden_booking_archives": golden_archive_count
+            }
+        }
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["checks"]["tables"] = {
+            "status": "error",
+            "message": f"Tables check failed: {str(e)}"
+        }
+    
+    # 4. فحص المستخدمين
+    try:
+        db = SessionLocal()
+        users_count = db.query(models.UserAccount).count()
+        db.close()
+        health_status["checks"]["users"] = {
+            "status": "ok",
+            "message": f"Users table accessible ({users_count} users)"
+        }
+    except Exception as e:
+        health_status["checks"]["users"] = {
+            "status": "error",
+            "message": f"Users check failed: {str(e)}"
+        }
+    
+    return health_status
+
+# Detailed health check with statistics
+@app.get("/healthz")
+def healthz_detailed():
+    """Health check مفصل مع إحصائيات كاملة"""
+    from datetime import datetime as dt
+    health_data = {
+        "status": "healthy",
+        "timestamp": dt.utcnow().isoformat() + "Z",
+        "version": "1.0.0",
+        "service": "Tabeby API",
+        "checks": {},
+        "statistics": {}
+    }
+    
+    # 1. فحص قاعدة البيانات
+    try:
+        db = SessionLocal()
+        db.execute("SELECT 1")
+        health_data["checks"]["database"] = {"status": "ok"}
+        
+        # إحصائيات قاعدة البيانات
+        try:
+            health_data["statistics"]["database"] = {
+                "users": db.query(models.UserAccount).count(),
+                "patient_profiles": db.query(models.PatientProfile).count(),
+                "secretaries": db.query(models.Secretary).count(),
+                "booking_tables": db.query(models.BookingTable).count(),
+                "golden_booking_tables": db.query(models.GoldenBookingTable).count(),
+                "booking_archives": db.query(models.BookingArchive).count(),
+                "golden_booking_archives": db.query(models.GoldenBookingArchive).count()
+            }
+        except Exception as e:
+            health_data["statistics"]["database"] = {"error": str(e)}
+        
+        db.close()
+    except Exception as e:
+        health_data["status"] = "unhealthy"
+        health_data["checks"]["database"] = {
+            "status": "error",
+            "message": str(e)
+        }
+    
+    # 2. فحص Firebase
+    try:
+        ensure_firebase_initialized()
+        from firebase_admin import auth as firebase_auth
+        firebase_auth.list_users(max_results=1)
+        health_data["checks"]["firebase"] = {"status": "ok"}
+    except Exception as e:
+        health_data["status"] = "unhealthy"
+        health_data["checks"]["firebase"] = {
+            "status": "error",
+            "message": str(e)
+        }
+    
+    # 3. API Endpoints Status
+    health_data["endpoints"] = {
+        "auth": "/auth/login, /auth/register",
+        "bookings": "/api/booking_days, /api/patient_booking",
+        "golden_bookings": "/api/booking_golden_days, /api/patient_golden_booking",
+        "archives": "/api/all_days, /api/all_days_golden",
+        "doctors": "/doctor/profile, /api/doctors",
+        "patients": "/patient/register, /patient/profile"
+    }
+    
+    return health_data
 
 # include ads router
 app.include_router(ads_router)
