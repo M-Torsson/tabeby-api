@@ -788,12 +788,13 @@ def get_all_days(clinic_id: int, db: Session = Depends(get_db), _: None = Depend
 
 @router.post("/close_table", response_model=schemas.CloseTableResponse)
 def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
-    """تغيير حالة يوم إلى "closed" ثم حذفه من الجدول.
+    """تغيير حالة يوم إلى "closed"، حفظه في الأرشيف، ثم حذفه من الجدول.
     
     الخطوات:
     1. تغيير status إلى "closed"
     2. حفظ التغيير
-    3. حذف اليوم من days_json
+    3. حفظ اليوم في الأرشيف (BookingArchive)
+    4. حذف اليوم من days_json
     """
     bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == payload.clinic_id).first()
     if not bt:
@@ -819,7 +820,43 @@ def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db
     db.add(bt)
     db.commit()
 
-    # الخطوة 2: حذف اليوم من الجدول
+    # الخطوة 2: حفظ اليوم في الأرشيف
+    patients_list = day_obj.get("patients", [])
+    capacity_total = day_obj.get("capacity_total", 0)
+    capacity_served = sum(1 for p in patients_list if isinstance(p, dict) and p.get("status") in ("تمت المعاينة", "served"))
+    capacity_cancelled = sum(1 for p in patients_list if isinstance(p, dict) and p.get("status") in ("ملغى", "cancelled"))
+    
+    # التحقق إذا كان اليوم موجود في الأرشيف
+    existing = (
+        db.query(models.BookingArchive)
+        .filter(models.BookingArchive.clinic_id == payload.clinic_id,
+                models.BookingArchive.table_date == payload.date)
+        .first()
+    )
+    
+    if existing:
+        # تحديث الأرشيف الموجود
+        existing.capacity_total = capacity_total
+        existing.capacity_served = capacity_served
+        existing.capacity_cancelled = capacity_cancelled
+        existing.patients_json = json.dumps(patients_list, ensure_ascii=False)
+        db.add(existing)
+    else:
+        # إنشاء سجل جديد في الأرشيف
+        arch = models.BookingArchive(
+            clinic_id=payload.clinic_id,
+            table_date=payload.date,
+            capacity_total=capacity_total,
+            capacity_served=capacity_served,
+            capacity_cancelled=capacity_cancelled,
+            patients_json=json.dumps(patients_list, ensure_ascii=False)
+        )
+        db.add(arch)
+    db.commit()
+
+    # الخطوة 3: حذف اليوم من الجدول
+    days.pop(payload.date)
+    # الخطوة 3: حذف اليوم من الجدول
     days.pop(payload.date)
     
     # استبعاد المفاتيح المؤرشفة من العد
@@ -829,11 +866,17 @@ def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db
         # حذف السجل كاملاً إذا لم يتبق أيام
         db.delete(bt)
         db.commit()
-        return schemas.CloseTableResponse(status="تم إغلاق وحذف اليوم، وحذف القائمة بالكامل", removed_all=True)
+        return schemas.CloseTableResponse(
+            status="تم إغلاق وحفظ اليوم في الأرشيف، وحذف القائمة بالكامل",
+            removed_all=True
+        )
     
     # تحديث السجل بعد الحذف
     bt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(bt)
     db.commit()
     
-    return schemas.CloseTableResponse(status="تم إغلاق وحذف اليوم بنجاح", removed_all=False)
+    return schemas.CloseTableResponse(
+        status="تم إغلاق وحفظ اليوم في الأرشيف بنجاح",
+        removed_all=False
+    )

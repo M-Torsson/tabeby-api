@@ -293,12 +293,13 @@ def close_table_gold(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    """تغيير حالة يوم Golden إلى "closed" ثم حذفه من الجدول.
+    """تغيير حالة يوم Golden إلى "closed"، حفظه في الأرشيف، ثم حذفه من الجدول.
     
     الخطوات:
     1. تغيير status إلى "closed"
     2. حفظ التغيير
-    3. حذف اليوم من days_json
+    3. حفظ اليوم في الأرشيف (GoldenBookingArchive)
+    4. حذف اليوم من days_json
     """
     gt = db.query(models.GoldenBookingTable).filter(
         models.GoldenBookingTable.clinic_id == payload.clinic_id
@@ -328,21 +329,63 @@ def close_table_gold(
     db.add(gt)
     db.commit()
 
-    # الخطوة 2: حذف اليوم من الجدول
+    # الخطوة 2: حفظ اليوم في الأرشيف
+    patients_list = day_obj.get("patients", [])
+    capacity_total = day_obj.get("capacity_total", 0)
+    capacity_served = sum(1 for p in patients_list if isinstance(p, dict) and p.get("status") in ("تمت المعاينة", "served"))
+    capacity_cancelled = sum(1 for p in patients_list if isinstance(p, dict) and p.get("status") in ("ملغى", "cancelled"))
+    
+    # التحقق إذا كان اليوم موجود في الأرشيف
+    existing = (
+        db.query(models.GoldenBookingArchive)
+        .filter(models.GoldenBookingArchive.clinic_id == payload.clinic_id,
+                models.GoldenBookingArchive.table_date == payload.date)
+        .first()
+    )
+    
+    if existing:
+        # تحديث الأرشيف الموجود
+        existing.capacity_total = capacity_total
+        existing.capacity_served = capacity_served
+        existing.capacity_cancelled = capacity_cancelled
+        existing.patients_json = json.dumps(patients_list, ensure_ascii=False)
+        db.add(existing)
+    else:
+        # إنشاء سجل جديد في الأرشيف
+        arch = models.GoldenBookingArchive(
+            clinic_id=payload.clinic_id,
+            table_date=payload.date,
+            capacity_total=capacity_total,
+            capacity_served=capacity_served,
+            capacity_cancelled=capacity_cancelled,
+            patients_json=json.dumps(patients_list, ensure_ascii=False)
+        )
+        db.add(arch)
+    db.commit()
+
+    # الخطوة 3: حذف اليوم من الجدول
+    days.pop(payload.date)
+    # الخطوة 3: حذف اليوم من الجدول
     days.pop(payload.date)
     
     if not days:
         # حذف السجل كاملاً إذا لم يتبق أيام
         db.delete(gt)
         db.commit()
-        return schemas.CloseTableResponse(status="تم إغلاق وحذف يوم Golden، وحذف القائمة بالكامل", removed_all=True)
+        return schemas.CloseTableResponse(
+            status="تم إغلاق وحفظ يوم Golden في الأرشيف، وحذف القائمة بالكامل",
+            removed_all=True
+        )
     
     # تحديث السجل بعد الحذف
     gt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(gt)
     db.commit()
     
-    return schemas.CloseTableResponse(status="تم إغلاق وحذف يوم Golden بنجاح", removed_all=False)
+    return schemas.CloseTableResponse(
+        status="تم إغلاق وحفظ يوم Golden في الأرشيف بنجاح",
+        removed_all=False
+    )
 
 
 @router.post("/edit_patient_gold_booking", response_model=schemas.EditPatientBookingResponse)
