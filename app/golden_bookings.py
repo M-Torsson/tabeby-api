@@ -1,8 +1,11 @@
 from __future__ import annotations
 import json
 import random
+import asyncio
+import hashlib
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from .database import SessionLocal
 from . import models, schemas
@@ -168,13 +171,116 @@ def patient_golden_booking(
     )
 
 
-@router.get("/booking_golden_days", response_model=dict)
-def get_golden_booking_days(
+def _load_days_raw_golden(db: Session, clinic_id: int) -> dict:
+    """تحميل أيام Golden Book من قاعدة البيانات."""
+    gt = db.query(models.GoldenBookingTable).filter(
+        models.GoldenBookingTable.clinic_id == clinic_id
+    ).first()
+    if not gt:
+        raise HTTPException(status_code=404, detail="لا يوجد جدول Golden لهذه العيادة")
+    try:
+        return json.loads(gt.days_json) if gt.days_json else {}
+    except Exception:
+        return {}
+
+
+def _clean_days_golden(days: dict) -> dict:
+    """تنظيف بيانات الأيام: إزالة حقول زائدة وترتيب المفاتيح."""
+    cleaned_days: dict = {}
+    for d_key in sorted(days.keys()):
+        d_val = days.get(d_key)
+        if not isinstance(d_val, dict):
+            cleaned_days[d_key] = d_val
+            continue
+        # إزالة inline_next إن وجد
+        if "inline_next" in d_val:
+            d_val = {k: v for k, v in d_val.items() if k != "inline_next"}
+        # تنظيف بيانات المرضى
+        patients = d_val.get("patients")
+        if isinstance(patients, list):
+            new_list = []
+            for p in patients:
+                if isinstance(p, dict):
+                    # إزالة clinic_id و date من بيانات المريض إن كانت موجودة
+                    if "clinic_id" in p or "date" in p:
+                        p = {k: v for k, v in p.items() if k not in ("clinic_id", "date")}
+                new_list.append(p)
+            d_val["patients"] = new_list
+        cleaned_days[d_key] = d_val
+    return cleaned_days
+
+
+@router.get("/booking_golden_days", response_model=schemas.BookingDaysFullResponse)
+async def get_golden_booking_days(
+    clinic_id: int,
+    request: Request,
+    stream: bool = False,
+    heartbeat: int = 15,
+    timeout: int = 300,
+    poll_interval: float = 1.0,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """إرجاع أيام Golden Book كـ JSON كما هو معتاد، أو كبث SSE إذا طُلب.
+
+    - الوضع الافتراضي: JSON (سلوك قديم بدون تغيير)
+    - إذا stream=true أو كان Accept يحتوي text/event-stream: بث SSE
+    """
+
+    wants_sse = stream or ("text/event-stream" in (request.headers.get("accept", "").lower()))
+    if not wants_sse:
+        days = _load_days_raw_golden(db, clinic_id)
+        cleaned = _clean_days_golden(days)
+        return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cleaned)
+
+    async def event_gen():
+        # لقطة أولية + تحديثات عند تغيّر الهاش + ping دوري
+        try:
+            days = _load_days_raw_golden(db, clinic_id)
+            cleaned = _clean_days_golden(days)
+            last_hash = hashlib.sha1(json.dumps(cleaned, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+            payload = json.dumps({"clinic_id": clinic_id, "days": cleaned, "hash": last_hash}, ensure_ascii=False)
+            yield f"event: snapshot\ndata: {payload}\n\n"
+
+            start = datetime.now(timezone.utc)
+            last_ping = start
+            while True:
+                # timeout
+                if (datetime.now(timezone.utc) - start).total_seconds() > timeout:
+                    yield "event: bye\ndata: timeout\n\n"
+                    break
+                # تحقق دوري للتغيّر
+                await asyncio.sleep(poll_interval)
+                days = _load_days_raw_golden(db, clinic_id)
+                cleaned = _clean_days_golden(days)
+                cur_hash = hashlib.sha1(json.dumps(cleaned, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+                if cur_hash != last_hash:
+                    last_hash = cur_hash
+                    payload = json.dumps({"clinic_id": clinic_id, "days": cleaned, "hash": last_hash}, ensure_ascii=False)
+                    yield f"event: update\ndata: {payload}\n\n"
+                # ping
+                if (datetime.now(timezone.utc) - last_ping).total_seconds() >= heartbeat:
+                    last_ping = datetime.now(timezone.utc)
+                    yield f"event: ping\ndata: {json.dumps({'ts': last_ping.timestamp()})}\n\n"
+        except Exception as e:
+            err = json.dumps({"error": str(e)})
+            yield f"event: error\ndata: {err}\n\n"
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(event_gen(), media_type="text/event-stream", headers=headers)
+
+
+@router.get("/booking_golden_days_old", response_model=dict)
+def get_golden_booking_days_old(
     clinic_id: int,
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    """إرجاع كل أيام Golden Book لعيادة معينة.
+    """[مهمل] إرجاع كل أيام Golden Book لعيادة معينة (نسخة قديمة بدون streaming).
     
     مشابه تماماً لـ /booking_days - يرجع 404 إذا لم يوجد جدول.
     """
