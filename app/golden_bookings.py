@@ -421,3 +421,55 @@ def edit_patient_gold_booking(
         new_status=normalized_status,
         patient_id=patient_id_found
     )
+
+
+@router.get("/all_days_golden", response_model=schemas.AllDaysResponse)
+def get_all_days_golden(
+    clinic_id: int,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """إرجاع جميع الأيام المؤرشفة من Golden Book كقاموس days.
+
+    الشكل:
+    {
+      "clinic_id": <id>,
+      "days": {
+         "2025-10-04": {
+            "capacity_total": 5,
+            "capacity_served": 3,
+            "capacity_cancelled": 1,
+            "patients": [...]
+         },
+         ...
+      }
+    }
+    """
+    rows = (
+        db.query(models.GoldenBookingArchive)
+        .filter(models.GoldenBookingArchive.clinic_id == clinic_id)
+        .order_by(models.GoldenBookingArchive.table_date.asc())
+        .all()
+    )
+    
+    days: dict[str, dict] = {}
+    for r in rows:
+        try:
+            patients = json.loads(r.patients_json) if r.patients_json else []
+            if not isinstance(patients, list):
+                patients = []
+        except Exception:
+            patients = []
+        
+        capacity_used = len([p for p in patients if isinstance(p, dict)])
+        
+        days[r.table_date] = {
+            "capacity_total": r.capacity_total,
+            "capacity_served": r.capacity_served,
+            "capacity_cancelled": r.capacity_cancelled,
+            "capacity_used": capacity_used,
+            "status": "open",
+            "patients": patients,
+        }
+    
+    return schemas.AllDaysResponse(clinic_id=clinic_id, days=days)
