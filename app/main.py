@@ -86,7 +86,7 @@ def health():
     # 1. فحص قاعدة البيانات
     try:
         db = SessionLocal()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         db.close()
         health_status["checks"]["database"] = {
             "status": "ok",
@@ -180,7 +180,7 @@ def healthz_detailed():
     # 1. فحص قاعدة البيانات
     try:
         db = SessionLocal()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         health_data["checks"]["database"] = {"status": "ok"}
         
         # إحصائيات قاعدة البيانات
