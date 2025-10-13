@@ -584,10 +584,12 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
 
     target_index = None
     old_status = None
+    patient_id_found = None
     for idx, p in enumerate(plist):
         if isinstance(p, dict) and p.get("booking_id") == booking_id:
             target_index = idx
             old_status = p.get("status")
+            patient_id_found = p.get("patient_id")
             break
 
     if target_index is None:
@@ -607,6 +609,7 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
         booking_id=booking_id,
         old_status=old_status,
         new_status=normalized_status,
+        patient_id=patient_id_found
     )
 
 

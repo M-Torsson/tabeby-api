@@ -410,6 +410,7 @@ class EditPatientBookingResponse(BaseModel):
     booking_id: str
     old_status: str
     new_status: str
+    patient_id: str | None = None
 
 
 # ===== Save/Close Table Schemas =====
