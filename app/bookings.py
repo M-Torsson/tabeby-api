@@ -856,8 +856,6 @@ def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db
 
     # الخطوة 3: حذف اليوم من الجدول
     days.pop(payload.date)
-    # الخطوة 3: حذف اليوم من الجدول
-    days.pop(payload.date)
     
     # استبعاد المفاتيح المؤرشفة من العد
     remaining_booking_days = [k for k in days.keys() if not k.startswith("_archived_")]
