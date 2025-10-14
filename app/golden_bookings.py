@@ -471,8 +471,6 @@ def close_table_gold(
 
     # الخطوة 3: حذف اليوم من الجدول
     days.pop(payload.date)
-    # الخطوة 3: حذف اليوم من الجدول
-    days.pop(payload.date)
     
     if not days:
         # حذف السجل كاملاً إذا لم يتبق أيام
