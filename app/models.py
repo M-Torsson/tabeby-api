@@ -332,3 +332,15 @@ class GoldenBookingArchive(Base):
     __table_args__ = (
         Index("ix_golden_booking_archives_clinic_date", "clinic_id", "table_date"),
     )
+
+
+# ===== Clinic Status (track if clinic is open/closed) =====
+
+class ClinicStatus(Base):
+    __tablename__ = "clinic_status"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    clinic_id = Column(Integer, unique=True, index=True, nullable=False)
+    is_closed = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

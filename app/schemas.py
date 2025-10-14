@@ -485,3 +485,13 @@ class GoldenBookingResponse(BaseModel):
     clinic_id: int
     date: str
     patient_id: str | None = None
+
+
+# ===== Clinic Status Schemas =====
+class ClinicStatusUpdateRequest(BaseModel):
+    clinic_id: int
+    is_closed: bool
+
+class ClinicStatusResponse(BaseModel):
+    clinic_id: int
+    is_closed: bool
