@@ -14,6 +14,7 @@ from .database import SessionLocal
 from . import models
 from . import schemas
 from .auth import get_current_admin  # kept for potential reuse, but not required for public endpoints
+from .cache import cache
 
 router = APIRouter(prefix="/api", tags=["Doctors"])
 
@@ -197,6 +198,14 @@ def list_doctors(
     sort: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
+    # إنشاء cache key فريد بناءً على المعاملات
+    cache_key = f"doctors:list:{q}:{specialty}:{status}:{expMin}:{expMax}:{page}:{pageSize}:{sort}"
+    
+    # محاولة الحصول من الكاش
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return cached_result
+    
     _ensure_seed(db)
     page = max(1, page)
     pageSize = max(1, min(pageSize, 100))
@@ -344,11 +353,22 @@ def list_doctors(
             item["specializations"] = []
 
         items.append(item)
-    return {"items": items, "total": total, "page": page, "pageSize": pageSize}
+    
+    # حفظ النتيجة في الكاش لمدة دقيقتين
+    result = {"items": items, "total": total, "page": page, "pageSize": pageSize}
+    cache.set(cache_key, result, ttl=120)
+    
+    return result
 
 
 @router.get("/doctors/{doctor_id}")
 def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
+    # تحقق من الكاش أولاً
+    cache_key = f"doctor:single:{doctor_id}"
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return cached_result
+    
     r = db.query(models.Doctor).filter_by(id=doctor_id).first()
     if not r:
         # سلوك صارم: هذا المسار يبحث فقط بالمعرّف الأساسي لسجل doctors
@@ -368,7 +388,12 @@ def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret)
     if isinstance(profile, dict):
         profile_out = dict(profile)
     profile_out["account"] = acc
-    return {"id": r.id, "profile": profile_out}
+    
+    result = {"id": r.id, "profile": profile_out}
+    # حفظ في الكاش لمدة 5 دقائق
+    cache.set(cache_key, result, ttl=300)
+    
+    return result
 
 
 @router.get("/doctors/by-clinic-id/{clinic_id}")
@@ -467,6 +492,11 @@ async def update_doctor(doctor_id: int, request: Request, db: Session = Depends(
 
     r.profile_json = json.dumps(profile, ensure_ascii=False)
     db.commit()
+    
+    # مسح كاش هذا الطبيب وقوائم الأطباء
+    cache.delete(f"doctor:single:{doctor_id}")
+    cache.delete_pattern("doctors:list:")
+    
     return {"ok": True, "id": doctor_id}
 
 
@@ -480,6 +510,11 @@ def update_doctor_status(doctor_id: int, body: Dict[str, Any], db: Session = Dep
         return error("bad_request", "active must be boolean", 400)
     r.status = "active" if active else "inactive"
     db.commit()
+    
+    # مسح الكاش بعد تغيير الحالة
+    cache.delete(f"doctor:single:{doctor_id}")
+    cache.delete_pattern("doctors:list:")
+    
     return {"id": r.id, "status": "Active" if r.status == "active" else "Inactive"}
 
 
@@ -490,6 +525,11 @@ def delete_doctor(doctor_id: int, db: Session = Depends(get_db)):
         return error("not_found", "Doctor not found", 404)
     db.delete(r)
     db.commit()
+    
+    # مسح الكاش بعد حذف الطبيب
+    cache.delete(f"doctor:single:{doctor_id}")
+    cache.delete_pattern("doctors:list:")
+    
     return {"message": "deleted", "id": doctor_id}
 
 
@@ -541,6 +581,10 @@ async def create_doctor(request: Request, db: Session = Depends(get_db)):
     db.add(row)
     db.commit()
     db.refresh(row)
+    
+    # مسح الكاش بعد إضافة طبيب جديد
+    cache.delete_pattern("doctors:list:")
+    
     return {"id": row.id}
 
 
