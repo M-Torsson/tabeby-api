@@ -14,15 +14,29 @@ if DATABASE_URL and DATABASE_URL.startswith("postgresql://"):
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is missing in .env file")
 
-# إنشاء محرك الاتصال مع إعدادات Pool محسّنة
+# حساب Pool Size الديناميكي بناءً على عدد Workers
+WEB_CONCURRENCY = int(os.getenv("WEB_CONCURRENCY", "4"))
+CONNECTIONS_PER_WORKER = 12
+POOL_SIZE = min(WEB_CONCURRENCY * CONNECTIONS_PER_WORKER, 60)
+MAX_OVERFLOW = min(POOL_SIZE * 3, 180)
+
+# إنشاء محرك الاتصال مع إعدادات Pool محسّنة للإنتاج (يتحمل 10,000+ مستخدم)
 engine = create_engine(
     DATABASE_URL,
-    pool_size=10,              # عدد الاتصالات الدائمة في البول
-    max_overflow=20,           # الحد الأقصى للاتصالات الإضافية
+    pool_size=POOL_SIZE,       # 60 اتصال دائم (كان 10)
+    max_overflow=MAX_OVERFLOW, # 180 اتصال إضافي (كان 20)
     pool_timeout=30,           # وقت الانتظار للحصول على اتصال
     pool_pre_ping=True,        # التحقق من الاتصال قبل الاستخدام
-    pool_recycle=3600,         # إعادة تدوير الاتصالات بعد ساعة
-    echo=False                 # تعطيل SQL logging في الإنتاج
+    pool_recycle=1800,         # إعادة تدوير بعد 30 دقيقة (مناسب لـ Neon)
+    pool_reset_on_return='rollback',  # إعادة تعيين الاتصال
+    echo=False,                # تعطيل SQL logging
+    connect_args={
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+        "connect_timeout": 10,
+    } if "postgresql" in DATABASE_URL else {}
 )
 
 # جلسة التعامل مع قاعدة البيانات

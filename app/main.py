@@ -1,7 +1,9 @@
 import os
+import time
+import logging
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Request, Response
 from sqlalchemy.orm import Session
-from .database import Base, engine, SessionLocal
+from .database import Base, engine, SessionLocal, check_database_connection, dispose_engine, get_pool_stats
 from . import models, schemas
 from .auth import router as auth_router
 from .users import router as users_router
@@ -20,11 +22,20 @@ from .clinic_status import router as clinic_status_router
 from fastapi.middleware.cors import CORSMiddleware
 from .firebase_init import ensure_firebase_initialized
 from .doctors import _denormalize_profile, _to_ascii_digits, _safe_int  # reuse helpers
+from .cache import cache
+from .rate_limiter import RateLimitMiddleware
 import json
 import uuid
 import re
 from typing import Any, Dict
 from sqlalchemy import text
+
+# إعداد logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # إنشاء الجداول عند تشغيل التطبيق لأول مرة (بما في ذلك جداول RBAC الجديدة)
 Base.metadata.create_all(bind=engine)
@@ -36,7 +47,14 @@ except Exception as _e:
     # Don't crash app startup in dev if env var is missing; raise only when endpoint is called
     pass
 
-app = FastAPI(title="Tabeby API")
+app = FastAPI(
+    title="Tabeby API",
+    description="API للإدارة الطبية وحجوزات العيادات - محسّن لتحمل 10,000+ مستخدم",
+    version="2.0.0"
+)
+
+# إضافة Rate Limiting Middleware (قبل CORS)
+app.add_middleware(RateLimitMiddleware)
 
 # CORS configuration: allow configured origins and any localhost/127.0.0.1 port by default
 
@@ -65,6 +83,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Startup Event
+@app.on_event("startup")
+async def startup_event():
+    """تنفيذ عند بدء التطبيق"""
+    logger.info("🚀 Starting Tabeby API v2.0.0 (Optimized for 10K+ users)...")
+    
+    # التحقق من الاتصال بقاعدة البيانات
+    if check_database_connection():
+        logger.info("✅ Database connection established")
+        
+        # عرض إحصائيات Pool
+        try:
+            pool_stats = get_pool_stats()
+            logger.info(f"📊 Connection Pool: {pool_stats}")
+        except Exception:
+            pass
+    else:
+        logger.error("❌ Failed to connect to database")
+    
+    logger.info("✅ Application started successfully")
+
+# Shutdown Event
+@app.on_event("shutdown")
+async def shutdown_event():
+    """تنفيذ عند إيقاف التطبيق"""
+    logger.info("🛑 Shutting down Tabeby API...")
+    
+    # إغلاق اتصالات Database
+    dispose_engine()
+    
+    # مسح الكاش
+    cache.clear()
+    
+    logger.info("✅ Application shutdown complete")
+
 # دالة للحصول على جلسة قاعدة البيانات
 def get_db():
     db = SessionLocal()
@@ -73,32 +126,42 @@ def get_db():
     finally:
         db.close()
 
-# فحص الصحة
+# فحص الصحة المحسّن
 @app.get("/health")
 def health():
-    """Health check شامل يفحص جميع مكونات النظام"""
+    """Health check شامل يفحص جميع مكونات النظام + إحصائيات الأداء"""
     from datetime import datetime as dt
     health_status = {
         "status": "healthy",
         "timestamp": dt.utcnow().isoformat() + "Z",
-        "checks": {}
+        "version": "2.0.0",
+        "checks": {},
+        "performance": {}
     }
     
     # 1. فحص قاعدة البيانات
-    try:
-        db = SessionLocal()
-        db.execute(text("SELECT 1"))
-        db.close()
-        health_status["checks"]["database"] = {
-            "status": "ok",
-            "message": "Database connection successful"
-        }
-    except Exception as e:
+    db_healthy = check_database_connection()
+    health_status["checks"]["database"] = {
+        "status": "ok" if db_healthy else "error",
+        "message": "Database connection successful" if db_healthy else "Database connection failed"
+    }
+    
+    if not db_healthy:
         health_status["status"] = "unhealthy"
-        health_status["checks"]["database"] = {
-            "status": "error",
-            "message": f"Database connection failed: {str(e)}"
-        }
+    
+    # 2. إحصائيات Connection Pool
+    try:
+        pool_stats = get_pool_stats()
+        health_status["performance"]["connection_pool"] = pool_stats
+    except Exception as e:
+        logger.error(f"Failed to get pool stats: {e}")
+    
+    # 3. إحصائيات Cache
+    try:
+        cache_stats = cache.stats()
+        health_status["performance"]["cache"] = cache_stats
+    except Exception as e:
+        logger.error(f"Failed to get cache stats: {e}")
     
     # 2. فحص Firebase
     try:
@@ -362,7 +425,57 @@ app.include_router(legacy_router)
 # مسار الجذر لعرض رسالة بسيطة أو تحويل إلى الوثائق
 @app.get("/")
 def root():
-    return {"message": "Tabeby API is running", "docs": "/docs", "health": "/health"}
+    return {
+        "message": "Tabeby API v2.0.0 is running",
+        "status": "optimized for 10K+ concurrent users",
+        "docs": "/docs",
+        "health": "/health",
+        "stats": "/stats"
+    }
+
+# Endpoint لإحصائيات الكاش
+@app.get("/cache/stats")
+def cache_statistics():
+    """إحصائيات الكاش للمراقبة"""
+    try:
+        return {
+            "cache": cache.stats(),
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"Failed to get cache stats: {e}")
+        return {"error": str(e)}
+
+# Endpoint لمسح الكاش (للمدراء فقط)
+@app.post("/cache/clear")
+def clear_cache():
+    """مسح الكاش بالكامل"""
+    try:
+        cache.clear()
+        logger.info("Cache cleared manually")
+        return {"message": "Cache cleared successfully", "timestamp": time.time()}
+    except Exception as e:
+        logger.error(f"Failed to clear cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Endpoint لإحصائيات شاملة
+@app.get("/stats")
+def system_statistics():
+    """إحصائيات شاملة للنظام"""
+    try:
+        stats = {
+            "timestamp": time.time(),
+            "database": {
+                "connected": check_database_connection(),
+                "pool": get_pool_stats()
+            },
+            "cache": cache.stats(),
+            "version": "2.0.0"
+        }
+        return stats
+    except Exception as e:
+        logger.error(f"Failed to get system stats: {e}")
+        return {"error": str(e)}
 
 # إضافة مريض جديد
 @app.post("/patients", response_model=schemas.PatientOut)

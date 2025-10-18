@@ -299,6 +299,10 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     bt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(bt)
     db.commit()
+    
+    # حذف الكاش بعد التحديث لضمان حصول المستخدمين على أحدث البيانات
+    from .cache import cache
+    cache.delete_pattern(f"booking:days:clinic:{clinic_id}")
 
     return schemas.PatientBookingResponse(
         message=f"تم الحجز بنجاح بأسم: {payload.name}",
@@ -492,14 +496,27 @@ async def get_booking_days(
 ):
     """إرجاع الأيام كـ JSON كما هو معتاد، أو كبث SSE إذا طُلب.
 
-    - الوضع الافتراضي: JSON (سلوك قديم بدون تغيير)
+    - الوضع الافتراضي: JSON (سلوك قديم بدون تغيير) + Caching للأداء
     - إذا stream=true أو كان Accept يحتوي text/event-stream: بث SSE
     """
 
     wants_sse = stream or ("text/event-stream" in (request.headers.get("accept", "").lower()))
     if not wants_sse:
+        # محاولة الحصول من الكاش أولاً
+        from .cache import cache
+        cache_key = f"booking:days:clinic:{clinic_id}"
+        cached_data = cache.get(cache_key)
+        
+        if cached_data:
+            return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cached_data)
+        
+        # إذا لم يوجد في الكاش، اقرأ من Database
         days = _load_days_raw(db, clinic_id)
         cleaned = _clean_days(days)
+        
+        # حفظ في الكاش لمدة 30 ثانية
+        cache.set(cache_key, cleaned, ttl=30)
+        
         return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cleaned)
 
     async def event_gen():

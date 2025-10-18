@@ -157,6 +157,10 @@ def patient_golden_booking(
     db.add(gt)
     db.commit()
     
+    # حذف الكاش بعد التحديث
+    from .cache import cache
+    cache.delete_pattern(f"golden:days:clinic:{payload.clinic_id}")
+    
     return schemas.GoldenBookingResponse(
         message=f"تم الحجز بنجاح بأسم: {payload.name}",
         code=new_code,
@@ -229,8 +233,21 @@ async def get_golden_booking_days(
 
     wants_sse = stream or ("text/event-stream" in (request.headers.get("accept", "").lower()))
     if not wants_sse:
+        # محاولة الحصول من الكاش أولاً
+        from .cache import cache
+        cache_key = f"golden:days:clinic:{clinic_id}"
+        cached_data = cache.get(cache_key)
+        
+        if cached_data:
+            return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cached_data)
+        
+        # إذا لم يوجد في الكاش، اقرأ من Database
         days = _load_days_raw_golden(db, clinic_id)
         cleaned = _clean_days_golden(days)
+        
+        # حفظ في الكاش لمدة 30 ثانية
+        cache.set(cache_key, cleaned, ttl=30)
+        
         return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cleaned)
 
     async def event_gen():
