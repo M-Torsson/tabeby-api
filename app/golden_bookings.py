@@ -235,8 +235,10 @@ async def get_golden_booking_days(
 
     async def event_gen():
         # لقطة أولية + تحديثات عند تغيّر الهاش + ping دوري
+        # نستخدم session منفصل لكل استعلام لتجنب حبس الاتصالات
+        local_db = SessionLocal()
         try:
-            days = _load_days_raw_golden(db, clinic_id)
+            days = _load_days_raw_golden(local_db, clinic_id)
             cleaned = _clean_days_golden(days)
             last_hash = hashlib.sha1(json.dumps(cleaned, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
             payload = json.dumps({"clinic_id": clinic_id, "days": cleaned, "hash": last_hash}, ensure_ascii=False)
@@ -249,15 +251,19 @@ async def get_golden_booking_days(
                 if (datetime.now(timezone.utc) - start).total_seconds() > timeout:
                     yield "event: bye\ndata: timeout\n\n"
                     break
-                # تحقق دوري للتغيّر
+                # تحقق دوري للتغيّر - نستخدم session جديد في كل مرة
                 await asyncio.sleep(poll_interval)
-                days = _load_days_raw_golden(db, clinic_id)
-                cleaned = _clean_days_golden(days)
-                cur_hash = hashlib.sha1(json.dumps(cleaned, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-                if cur_hash != last_hash:
-                    last_hash = cur_hash
-                    payload = json.dumps({"clinic_id": clinic_id, "days": cleaned, "hash": last_hash}, ensure_ascii=False)
-                    yield f"event: update\ndata: {payload}\n\n"
+                temp_db = SessionLocal()
+                try:
+                    days = _load_days_raw_golden(temp_db, clinic_id)
+                    cleaned = _clean_days_golden(days)
+                    cur_hash = hashlib.sha1(json.dumps(cleaned, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+                    if cur_hash != last_hash:
+                        last_hash = cur_hash
+                        payload = json.dumps({"clinic_id": clinic_id, "days": cleaned, "hash": last_hash}, ensure_ascii=False)
+                        yield f"event: update\ndata: {payload}\n\n"
+                finally:
+                    temp_db.close()
                 # ping
                 if (datetime.now(timezone.utc) - last_ping).total_seconds() >= heartbeat:
                     last_ping = datetime.now(timezone.utc)
@@ -265,6 +271,8 @@ async def get_golden_booking_days(
         except Exception as e:
             err = json.dumps({"error": str(e)})
             yield f"event: error\ndata: {err}\n\n"
+        finally:
+            local_db.close()
 
     headers = {
         "Cache-Control": "no-cache",
