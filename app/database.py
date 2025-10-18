@@ -40,8 +40,47 @@ engine = create_engine(
 )
 
 # جلسة التعامل مع قاعدة البيانات
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    expire_on_commit=False  # تحسين الأداء
+)
 
 # الكلاس الأساسي للنماذج
 class Base(DeclarativeBase):
     pass
+
+# دالة للتحقق من صحة الاتصال
+def check_database_connection():
+    """التحقق من الاتصال بقاعدة البيانات"""
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
+
+# دالة لإغلاق جميع الاتصالات
+def dispose_engine():
+    """إغلاق جميع الاتصالات عند إيقاف التطبيق"""
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+
+# دالة للحصول على إحصائيات Pool
+def get_pool_stats():
+    """الحصول على إحصائيات Connection Pool"""
+    try:
+        pool = engine.pool
+        return {
+            "pool_size": pool.size(),
+            "checked_in": pool.checkedin(),
+            "checked_out": pool.checkedout(),
+            "overflow": pool.overflow(),
+            "total_capacity": POOL_SIZE + MAX_OVERFLOW
+        }
+    except Exception:
+        return {}
