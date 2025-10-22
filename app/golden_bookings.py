@@ -76,6 +76,11 @@ def create_golden_table(
         db.add(gt)
         db.commit()
     
+    # مسح الكاش بعد الإنشاء أو التحديث
+    from .cache import cache
+    cache_key = f"golden:days:clinic:{payload.clinic_id}"
+    cache.delete(cache_key)
+    
     return schemas.GoldenTableCreateResponse(
         status="تم الانشاء بنجاح",
         message=f"تم انشاء القائمة بهذا التاريخ: {first_date}"
@@ -403,6 +408,12 @@ def save_table_gold(
         existing.patients_json = json.dumps(patients_list, ensure_ascii=False)
         db.add(existing)
         db.commit()
+        
+        # مسح الكاش بعد التحديث
+        from .cache import cache
+        cache_key = f"golden:days:clinic:{payload.clinic_id}"
+        cache.delete(cache_key)
+        
         return schemas.SaveTableResponse(status="تم تحديث أرشيف Golden بنجاح")
     else:
         arch = models.GoldenBookingArchive(
@@ -415,6 +426,12 @@ def save_table_gold(
         )
         db.add(arch)
         db.commit()
+        
+        # مسح الكاش بعد الإنشاء
+        from .cache import cache
+        cache_key = f"golden:days:clinic:{payload.clinic_id}"
+        cache.delete(cache_key)
+        
         return schemas.SaveTableResponse(status="تم إنشاء أرشيف Golden بنجاح")
 
 
@@ -501,6 +518,12 @@ def close_table_gold(
         # حذف السجل كاملاً إذا لم يتبق أيام
         db.delete(gt)
         db.commit()
+        
+        # مسح الكاش بعد الحذف
+        from .cache import cache
+        cache_key = f"golden:days:clinic:{payload.clinic_id}"
+        cache.delete(cache_key)
+        
         return schemas.CloseTableResponse(
             status="تم إغلاق وحفظ يوم Golden في الأرشيف، وحذف القائمة بالكامل",
             removed_all=True
@@ -510,6 +533,11 @@ def close_table_gold(
     gt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(gt)
     db.commit()
+    
+    # مسح الكاش بعد التحديث
+    from .cache import cache
+    cache_key = f"golden:days:clinic:{payload.clinic_id}"
+    cache.delete(cache_key)
     
     return schemas.CloseTableResponse(
         status="تم إغلاق وحفظ يوم Golden في الأرشيف بنجاح",
@@ -584,6 +612,12 @@ def edit_patient_gold_booking(
     gt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(gt)
     db.commit()
+    db.refresh(gt)
+
+    # مسح الكاش بعد التعديل لضمان ظهور التغييرات فوراً
+    from .cache import cache
+    cache_key = f"golden:days:clinic:{payload.clinic_id}"
+    cache.delete(cache_key)
 
     return schemas.EditPatientBookingResponse(
         message="تم تحديث حالة الحجز الذهبي بنجاح",
