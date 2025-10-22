@@ -473,6 +473,7 @@ class GoldenBookingRequest(BaseModel):
     patient_id: str
     name: str
     phone: str
+    auto_assign: bool = True  # إذا كان True يبحث عن أقرب يوم متاح، False يحجز في التاريخ المحدد فقط
 
 class GoldenBookingResponse(BaseModel):
     message: str

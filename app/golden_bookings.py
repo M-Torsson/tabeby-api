@@ -93,39 +93,152 @@ def patient_golden_booking(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    """حجز مريض في Golden Book مع توليد كود 4 أرقام فريد."""
+    """حجز مريض في Golden Book مع توليد كود 4 أرقام فريد.
+    
+    يدعم وضعين:
+    1. auto_assign=True (افتراضي): يبحث عن أقرب يوم متاح بدءاً من التاريخ المطلوب
+    2. auto_assign=False: يحجز في التاريخ المحدد فقط (يفشل إذا كان ممتلئاً)
+    """
     
     # البحث عن الجدول
     gt = db.query(models.GoldenBookingTable).filter(
         models.GoldenBookingTable.clinic_id == payload.clinic_id
     ).first()
     
+    # إذا لم يكن هناك جدول على الإطلاق، ننشئ واحداً
     if not gt:
-        raise HTTPException(status_code=404, detail="Golden booking table not found")
+        gt = models.GoldenBookingTable(
+            clinic_id=payload.clinic_id,
+            days_json=json.dumps({}, ensure_ascii=False)
+        )
+        db.add(gt)
+        db.commit()
     
     try:
         days = json.loads(gt.days_json) if gt.days_json else {}
     except Exception:
         days = {}
     
-    if payload.date not in days:
-        raise HTTPException(status_code=404, detail=f"Date {payload.date} not found in golden table")
+    # التحقق من صيغة التاريخ
+    from datetime import datetime as dt, timedelta
     
-    day_obj = days[payload.date]
-    if not isinstance(day_obj, dict):
-        raise HTTPException(status_code=400, detail="Invalid day structure")
+    try:
+        requested_date = dt.strptime(payload.date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="صيغة التاريخ غير صحيحة (يجب YYYY-MM-DD)")
     
-    patients = day_obj.get("patients")
+    final_date = None
+    day_obj = None
+    
+    # الوضع 1: الحجز في تاريخ محدد فقط (auto_assign=False)
+    if not payload.auto_assign:
+        date_str = payload.date
+        
+        # التحقق إذا كان اليوم موجوداً
+        if date_str not in days:
+            # إنشاء اليوم إذا لم يكن موجوداً
+            day_obj = {
+                "source": "patient_app",
+                "status": "open",
+                "capacity_total": 5,
+                "capacity_used": 0,
+                "patients": []
+            }
+            days[date_str] = day_obj
+            final_date = date_str
+        else:
+            day_obj = days.get(date_str)
+            if not isinstance(day_obj, dict):
+                raise HTTPException(status_code=400, detail="بنية اليوم غير صالحة")
+            
+            capacity_total = day_obj.get("capacity_total", 5)
+            capacity_used = day_obj.get("capacity_used", 0)
+            
+            # التحقق من السعة
+            if capacity_used >= capacity_total:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"اليوم {date_str} ممتلئ ({capacity_used}/{capacity_total}). جرب تاريخاً آخر أو استخدم auto_assign=true"
+                )
+            
+            # التحقق من عدم تكرار patient_id
+            patients = day_obj.get("patients", [])
+            if not isinstance(patients, list):
+                patients = []
+            
+            is_duplicate = any(
+                isinstance(p, dict) and p.get("patient_id") == payload.patient_id 
+                for p in patients
+            )
+            
+            if is_duplicate:
+                raise HTTPException(
+                    status_code=409, 
+                    detail=f"المريض {payload.patient_id} محجوز مسبقاً في {date_str}"
+                )
+            
+            final_date = date_str
+    
+    # الوضع 2: البحث التلقائي عن أقرب يوم متاح (auto_assign=True)
+    else:
+        current_date = requested_date
+        max_days_to_check = 30  # نتحقق من 30 يوم كحد أقصى
+        
+        for _ in range(max_days_to_check):
+            date_str = current_date.strftime("%Y-%m-%d")
+            
+            # التحقق إذا كان اليوم موجوداً
+            if date_str in days:
+                day_obj = days.get(date_str)
+                if isinstance(day_obj, dict):
+                    capacity_total = day_obj.get("capacity_total", 5)
+                    capacity_used = day_obj.get("capacity_used", 0)
+                    
+                    # إذا كان هناك مكان متاح
+                    if capacity_used < capacity_total:
+                        # التحقق من عدم تكرار patient_id
+                        patients = day_obj.get("patients", [])
+                        if not isinstance(patients, list):
+                            patients = []
+                        
+                        is_duplicate = any(
+                            isinstance(p, dict) and p.get("patient_id") == payload.patient_id 
+                            for p in patients
+                        )
+                        
+                        if not is_duplicate:
+                            final_date = date_str
+                            break
+            else:
+                # اليوم غير موجود، ننشئ جدول جديد
+                day_obj = {
+                    "source": "patient_app",
+                    "status": "open",
+                    "capacity_total": 5,
+                    "capacity_used": 0,
+                    "patients": []
+                }
+                days[date_str] = day_obj
+                final_date = date_str
+                break
+            
+            # الانتقال لليوم التالي
+            current_date += timedelta(days=1)
+        
+        if final_date is None:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"لا يوجد أيام متاحة خلال الـ {max_days_to_check} يوم القادمة"
+            )
+    
+    # الآن لدينا final_date و day_obj
+    day_obj = days[final_date]
+    patients = day_obj.get("patients", [])
     if not isinstance(patients, list):
-        day_obj["patients"] = []
-        patients = day_obj["patients"]
+        patients = []
     
-    capacity_total = day_obj.get("capacity_total", 0)
+    capacity_total = day_obj.get("capacity_total", 5)
     capacity_used = day_obj.get("capacity_used", 0)
-    
-    # تحقق من السعة
-    if capacity_used >= capacity_total:
-        raise HTTPException(status_code=400, detail="Golden table is full")
     
     # جمع الأكواد الموجودة حالياً لليوم
     existing_codes = {p.get("code") for p in patients if isinstance(p, dict) and p.get("code")}
@@ -137,7 +250,7 @@ def patient_golden_booking(
     next_token = max([p.get("token", 0) for p in patients if isinstance(p, dict)], default=0) + 1
     
     # تاريخ الحجز بصيغة ISO
-    date_compact = payload.date.replace("-", "")  # YYYYMMDD
+    date_compact = final_date.replace("-", "")  # YYYYMMDD
     booking_id = f"G-{payload.clinic_id}-{date_compact}-{payload.patient_id}"
     
     created_at = datetime.now(timezone.utc).isoformat()
@@ -157,17 +270,23 @@ def patient_golden_booking(
     day_obj["patients"] = patients
     day_obj["capacity_used"] = capacity_used + 1
     
-    days[payload.date] = day_obj
+    days[final_date] = day_obj
     gt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(gt)
     db.commit()
+    db.refresh(gt)
     
     # حذف الكاش بعد التحديث
     from .cache import cache
     cache.delete_pattern(f"golden:days:clinic:{payload.clinic_id}")
     
+    # رسالة توضح إذا تم الحجز في يوم مختلف
+    message = f"تم الحجز بنجاح بأسم: {payload.name}"
+    if payload.auto_assign and final_date != payload.date:
+        message += f" (تم الحجز في {final_date} لأن {payload.date} كان ممتلئاً)"
+    
     return schemas.GoldenBookingResponse(
-        message=f"تم الحجز بنجاح بأسم: {payload.name}",
+        message=message,
         code=new_code,
         booking_id=booking_id,
         token=next_token,
@@ -175,7 +294,7 @@ def patient_golden_booking(
         capacity_total=capacity_total,
         status="تم الحجز",
         clinic_id=payload.clinic_id,
-        date=payload.date,
+        date=final_date,  # التاريخ الفعلي للحجز
         patient_id=payload.patient_id
     )
 
