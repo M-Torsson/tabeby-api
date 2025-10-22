@@ -358,9 +358,9 @@ class PatientBookingRequest(BaseModel):
     status: str | None = None  # يمكن إرسال قيمة إنجليزية وسيتم تحويلها للعربية
     created_at: str | None = None
     secretary_id: str | None = None  # فقط عند الحجز من السكرتير
-    # في حال عدم إرسال booking_id نحتاج clinic_id + date
+    # في حال عدم إرسال booking_id نحتاج clinic_id + date (date اختياري للمريض)
     clinic_id: int | None = None
-    date: str | None = None  # صيغة YYYY-MM-DD
+    date: str | None = None  # صيغة YYYY-MM-DD (اختياري للمريض - سيبحث عن أقرب يوم متاح)
 
 class PatientBookingResponse(BaseModel):
     message: str

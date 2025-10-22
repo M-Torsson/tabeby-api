@@ -169,46 +169,156 @@ def create_table(payload: schemas.BookingCreateRequest, db: Session = Depends(ge
 
 @router.post("/patient_booking", response_model=schemas.PatientBookingResponse)
 def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
-    """إضافة مريض إلى قائمة يوم معين داخل عيادة.
-
-    في حال لم يُرسل booking_id سيتم توليده بالشكل: B-<clinic_id>-<yyyymmdd>-XXXX
-    حيث XXXX رقم متسلسل يبدأ من 0001 لذلك التاريخ.
+    """إضافة مريض إلى قائمة الحجز العادي.
+    
+    للحجز من تطبيق المريض:
+    - لا يحتاج إرسال date (سيتم البحث تلقائياً عن أقرب يوم متاح)
+    - يبدأ من اليوم الحالي، إذا كان ممتلئاً ينتقل لليوم التالي
+    - يفتح تيبل جديد تلقائياً إذا لم يكن موجوداً
+    
+    للحجز من السكرتير:
+    - يجب إرسال date محدد
     """
-    # إما أن يكون booking_id موجوداً أو نحتاج clinic_id + date لتوليده
-    if not payload.booking_id:
-        if not payload.clinic_id or not payload.date:
-            raise HTTPException(status_code=400, detail="يجب إرسال clinic_id و date عند عدم وجود booking_id")
-    clinic_id = payload.clinic_id if payload.clinic_id is not None else None
-    date_key = payload.date if payload.date is not None else None
-
+    
+    clinic_id = payload.clinic_id
+    if not clinic_id:
+        raise HTTPException(status_code=400, detail="يجب إرسال clinic_id")
+    
     # جلب جدول الحجز
     bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == clinic_id).first()
+    
+    # إذا لم يكن هناك جدول، ننشئ واحداً
     if not bt:
-        raise HTTPException(status_code=404, detail="لا يوجد جدول حجز لهذه العيادة")
+        bt = models.BookingTable(
+            clinic_id=clinic_id,
+            days_json=json.dumps({}, ensure_ascii=False)
+        )
+        db.add(bt)
+        db.commit()
 
     try:
-        days = json.loads(bt.days_json)
+        days = json.loads(bt.days_json) if bt.days_json else {}
     except Exception:
         days = {}
-
-    if date_key not in days:
-        raise HTTPException(status_code=404, detail="التاريخ غير موجود في هذه العيادة")
-
+    
+    # تحديد التاريخ المستهدف
+    from datetime import datetime as dt, timedelta, timezone as tz
+    
+    final_date = None
+    day_obj = None
+    
+    # للسكرتير: يجب تحديد التاريخ
+    if payload.source == "secretary_app":
+        if not payload.date:
+            raise HTTPException(status_code=400, detail="السكرتير يجب أن يحدد التاريخ")
+        
+        date_key = payload.date
+        
+        # إنشاء اليوم إذا لم يكن موجوداً
+        if date_key not in days:
+            # محاولة الحصول على السعة من آخر يوم موجود
+            ref_capacity = 20  # افتراضي
+            if days:
+                try:
+                    last_day = max(days.keys())
+                    last_day_obj = days.get(last_day, {})
+                    if isinstance(last_day_obj, dict):
+                        ref_capacity = last_day_obj.get("capacity_total", 20)
+                except Exception:
+                    pass
+            
+            day_obj = {
+                "source": "secretary_app",
+                "status": "open",
+                "capacity_total": ref_capacity,
+                "capacity_used": 0,
+                "patients": []
+            }
+            days[date_key] = day_obj
+        else:
+            day_obj = days[date_key]
+        
+        final_date = date_key
+    
+    # للمريض: البحث التلقائي عن أقرب يوم متاح
+    else:  # patient_app
+        # نبدأ من اليوم الحالي
+        today = dt.now(tz.utc).date()
+        current_date = today
+        max_days = 30
+        
+        for _ in range(max_days):
+            date_str = current_date.strftime("%Y-%m-%d")
+            
+            # التحقق إذا كان اليوم موجوداً
+            if date_str in days:
+                day_obj = days.get(date_str)
+                if isinstance(day_obj, dict):
+                    capacity_total = day_obj.get("capacity_total", 20)
+                    capacity_used = day_obj.get("capacity_used", 0)
+                    
+                    # إذا كان هناك مكان متاح
+                    if capacity_used < capacity_total:
+                        # التحقق من عدم تكرار patient_id (إذا كان محدداً)
+                        if payload.patient_id:
+                            patients = day_obj.get("patients", [])
+                            is_duplicate = any(
+                                isinstance(p, dict) and p.get("patient_id") == payload.patient_id 
+                                for p in patients
+                            )
+                            if not is_duplicate:
+                                final_date = date_str
+                                break
+                        else:
+                            final_date = date_str
+                            break
+            else:
+                # اليوم غير موجود، ننشئ تيبل جديد
+                # محاولة الحصول على السعة من آخر يوم موجود
+                ref_capacity = 20  # افتراضي
+                if days:
+                    try:
+                        last_day = max(days.keys())
+                        last_day_obj = days.get(last_day, {})
+                        if isinstance(last_day_obj, dict):
+                            ref_capacity = last_day_obj.get("capacity_total", 20)
+                    except Exception:
+                        pass
+                
+                day_obj = {
+                    "source": "patient_app",
+                    "status": "open",
+                    "capacity_total": ref_capacity,
+                    "capacity_used": 0,
+                    "patients": []
+                }
+                days[date_str] = day_obj
+                final_date = date_str
+                break
+            
+            # الانتقال لليوم التالي
+            current_date += timedelta(days=1)
+        
+        if final_date is None:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"لا يوجد أيام متاحة خلال الـ {max_days} يوم القادمة"
+            )
+    
+    # الآن لدينا final_date و day_obj
+    date_key = final_date
     day_obj = days[date_key]
-    # التحقق من الحقول الأساسية داخل اليوم
-    for fld in ["capacity_total", "capacity_used", "patients"]:
-        if fld not in day_obj:
-            raise HTTPException(status_code=400, detail=f"الحقل مفقود داخل اليوم: {fld}")
-
+    
+    # التحقق من الحقول الأساسية
     patients_list = day_obj.get("patients", [])
-
-    # توليد patient_id
-    # - للحجز من تطبيق المريض: النظام السابق P-<number> (تسلسل عالمي للعيادة يبدأ من 101)
-    # - للحجز من السكرتير: نستخدم آخر 3 أرقام من booking_id (بعد توليده) ونخزنه كقيمة مجردة مثل "003"
+    if not isinstance(patients_list, list):
+        patients_list = []
+    
+    # توليد patient_id للمريض إذا لم يُرسل
     auto_patient_id_for_patient_app: str | None = None
     if not payload.patient_id:
-        # حساب التسلسل العام (للتطبيق فقط)
-        max_num = 100  # سيصبح 101 عند عدم وجود أي مريض من التطبيق
+        # حساب التسلسل العام
+        max_num = 100
         for d_obj in days.values():
             for p in d_obj.get("patients", []):
                 pid = p.get("patient_id")
@@ -222,70 +332,43 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                     except Exception:
                         pass
         auto_patient_id_for_patient_app = f"P-{max_num+1}"
-        # سنقرر لاحقاً بعد توليد booking_id أيهما نستخدم حسب المصدر
+    
+    # منع تكرار نفس patient_id في نفس التاريخ
+    if payload.patient_id:
+        for p in patients_list:
+            if p.get("patient_id") == payload.patient_id:
+                raise HTTPException(status_code=409, detail="هذا المريض محجوز مسبقاً في هذا التاريخ")
 
-    # منع تكرار نفس patient_id في نفس التاريخ (بعد التوليد)
-    for p in patients_list:
-        if p.get("patient_id") == payload.patient_id:
-            raise HTTPException(status_code=409, detail="هذا المريض محجوز مسبقاً في هذا التاريخ")
-
-    capacity_total = int(day_obj.get("capacity_total", 0))
+    capacity_total = int(day_obj.get("capacity_total", 20))
     capacity_used = int(day_obj.get("capacity_used", 0))
-    if capacity_used >= capacity_total:
-        raise HTTPException(status_code=409, detail="السعة ممتلئة لهذا اليوم")
 
-    # حساب التسلسل (token)
+    # حساب التوكن
     next_token = capacity_used + 1
 
-    # توليد booking_id إن لم يُرسل مع نمطين:
-    # secretary_app: S-<clinic_id>-<YYYYMMDD>-NNN (3 أرقام)
-    # patient_app: B-<clinic_id>-<YYYYMMDD>-NNNN (4 أرقام كما السابق)
-    if not payload.booking_id:
-        seq = len(patients_list) + 1
-        date_compact = date_key.replace('-', '')
-        if payload.source == "secretary_app":
-            booking_id = f"S-{clinic_id}-{date_compact}-{seq:03d}"
-        else:
-            booking_id = f"B-{clinic_id}-{date_compact}-{seq:04d}"
-    else:
-        booking_id = payload.booking_id
-        # التحقق من صحة النمط إذا أُرسل
-        date_compact = date_key.replace('-', '') if date_key else ''
-        if payload.source == "secretary_app":
-            # يجب أن يبدأ بـ S-<clinic_id>-<date>- و آخر جزء 3 أرقام
-            expected_prefix = f"S-{clinic_id}-{date_compact}-"
-            if not booking_id.startswith(expected_prefix):
-                raise HTTPException(status_code=400, detail="booking_id غير متوافق مع النمط المطلوب للسكرتير")
-        else:
-            expected_prefix = f"B-{clinic_id}-{date_compact}-"
-            if not booking_id.startswith(expected_prefix):
-                raise HTTPException(status_code=400, detail="booking_id غير متوافق مع النمط المطلوب للتطبيق")
-
-    # الآن نحدد patient_id النهائي:
+    # توليد booking_id
+    seq = len(patients_list) + 1
+    date_compact = date_key.replace('-', '')
     if payload.source == "secretary_app":
-        # سيُحدد بعد توليد booking_id: نأخذ آخر 3 أرقام
-        pass
+        booking_id = f"S-{clinic_id}-{date_compact}-{seq:03d}"
     else:
-        if not payload.patient_id:
-            payload.patient_id = auto_patient_id_for_patient_app
+        booking_id = f"B-{clinic_id}-{date_compact}-{seq:04d}"
 
-    # حالة الحجز (تحويل لو أُرسلت إنجليزية)
+    # تحديد patient_id النهائي
+    if payload.source == "secretary_app" and not payload.patient_id:
+        suffix = booking_id.split('-')[-1]
+        if len(suffix) == 3 and suffix.isdigit():
+            payload.patient_id = suffix
+        else:
+            payload.patient_id = auto_patient_id_for_patient_app or "P-101"
+    elif not payload.patient_id:
+        payload.patient_id = auto_patient_id_for_patient_app
+
+    # حالة الحجز
     raw_status = payload.status or "booked"
     status_ar = STATUS_MAP.get(raw_status, raw_status)
 
     # created_at
-    created_at = payload.created_at or datetime.now(timezone.utc).isoformat()
-
-    # لو الحجز سكرتير ولم يُرسل patient_id: خذه من آخر 3 أرقام في booking_id
-    if payload.source == "secretary_app" and (not payload.patient_id):
-        # booking_id الآن موجود
-        suffix = booking_id.split('-')[-1]
-        # تأكد أنه 3 أرقام
-        if len(suffix) == 3 and suffix.isdigit():
-            payload.patient_id = suffix
-        else:
-            # fallback احتياطي: استخدم التسلسل العام
-            payload.patient_id = auto_patient_id_for_patient_app or "P-101"
+    created_at = payload.created_at or dt.now(timezone.utc).isoformat()
 
     patient_entry = {
         "booking_id": booking_id,
@@ -302,7 +385,7 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
 
     patients_list.append(patient_entry)
 
-    # تحديث السعة (لم نعد نستعمل inline_next)
+    # تحديث السعة
     day_obj["capacity_used"] = next_token
     day_obj["patients"] = patients_list
     days[date_key] = day_obj
@@ -311,8 +394,9 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     bt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(bt)
     db.commit()
+    db.refresh(bt)
     
-    # حذف الكاش بعد التحديث لضمان حصول المستخدمين على أحدث البيانات
+    # حذف الكاش بعد التحديث
     from .cache import cache
     cache.delete_pattern(f"booking:days:clinic:{clinic_id}")
 
