@@ -104,6 +104,12 @@ def create_table(payload: schemas.BookingCreateRequest, db: Session = Depends(ge
         )
         db.add(bt)
         db.commit()
+        
+        # مسح الكاش بعد الإنشاء
+        from .cache import cache
+        cache_key = f"booking:days:clinic:{payload.clinic_id}"
+        cache.delete(cache_key)
+        
         # capacity for response: prefer provided, else derived
         resp_cap = first_day_obj.get("capacity_total") if isinstance(first_day_obj, dict) else None
         return schemas.BookingCreateResponse(
@@ -139,6 +145,12 @@ def create_table(payload: schemas.BookingCreateRequest, db: Session = Depends(ge
     bt.days_json = json.dumps(existing_days, ensure_ascii=False)
     db.add(bt)
     db.commit()
+    
+    # مسح الكاش بعد التحديث
+    from .cache import cache
+    cache_key = f"booking:days:clinic:{payload.clinic_id}"
+    cache.delete(cache_key)
+    
     # Determine capacity_total for response (from merged new day)
     merged_cap = None
     try:
@@ -377,6 +389,12 @@ def add_day(payload: schemas.AddDayRequest, db: Session = Depends(get_db), _: No
         bt.days_json = json.dumps(days, ensure_ascii=False)
         db.add(bt)
         db.commit()
+        
+        # مسح الكاش بعد الإضافة
+        from .cache import cache
+        cache_key = f"booking:days:clinic:{payload.clinic_id}"
+        cache.delete(cache_key)
+        
         return schemas.AddDayResponse(
             status="تم الانشاء بنجاح",
             message=f"تمت إضافة اليوم الجديد: {custom_date}",
@@ -443,6 +461,12 @@ def add_day(payload: schemas.AddDayRequest, db: Session = Depends(get_db), _: No
     bt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(bt)
     db.commit()
+    
+    # مسح الكاش بعد الإضافة
+    from .cache import cache
+    cache_key = f"booking:days:clinic:{payload.clinic_id}"
+    cache.delete(cache_key)
+    
     return schemas.AddDayResponse(
         status="تم الانشاء بنجاح",
         message=f"تمت إضافة اليوم الجديد: {new_date_str}",
@@ -627,6 +651,12 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
     bt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(bt)
     db.commit()
+    db.refresh(bt)
+
+    # مسح الكاش بعد التعديل لضمان ظهور التغييرات فوراً
+    from .cache import cache
+    cache_key = f"booking:days:clinic:{payload.clinic_id}"
+    cache.delete(cache_key)
 
     return schemas.EditPatientBookingResponse(
         message="تم تحديث الحالة بنجاح",
@@ -693,6 +723,12 @@ def save_table(payload: schemas.SaveTableRequest, db: Session = Depends(get_db),
         existing.patients_json = json.dumps(patients_list, ensure_ascii=False)
         db.add(existing)
         db.commit()
+        
+        # مسح الكاش بعد التحديث
+        from .cache import cache
+        cache_key = f"booking:days:clinic:{payload.clinic_id}"
+        cache.delete(cache_key)
+        
         return schemas.SaveTableResponse(status="تم تحديث الأرشيف بنجاح")
     else:
         arch = models.BookingArchive(
@@ -705,6 +741,12 @@ def save_table(payload: schemas.SaveTableRequest, db: Session = Depends(get_db),
         )
         db.add(arch)
         db.commit()
+        
+        # مسح الكاش بعد الإنشاء
+        from .cache import cache
+        cache_key = f"booking:days:clinic:{payload.clinic_id}"
+        cache.delete(cache_key)
+        
         return schemas.SaveTableResponse(status="تم إنشاء الأرشيف بنجاح")
 
 
@@ -889,6 +931,12 @@ def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db
         # حذف السجل كاملاً إذا لم يتبق أيام
         db.delete(bt)
         db.commit()
+        
+        # مسح الكاش بعد الحذف
+        from .cache import cache
+        cache_key = f"booking:days:clinic:{payload.clinic_id}"
+        cache.delete(cache_key)
+        
         return schemas.CloseTableResponse(
             status="تم إغلاق وحفظ اليوم في الأرشيف، وحذف القائمة بالكامل",
             removed_all=True
@@ -898,6 +946,11 @@ def close_table(payload: schemas.CloseTableRequest, db: Session = Depends(get_db
     bt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(bt)
     db.commit()
+    
+    # مسح الكاش بعد التحديث
+    from .cache import cache
+    cache_key = f"booking:days:clinic:{payload.clinic_id}"
+    cache.delete(cache_key)
     
     return schemas.CloseTableResponse(
         status="تم إغلاق وحفظ اليوم في الأرشيف بنجاح",
