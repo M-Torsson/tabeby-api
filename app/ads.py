@@ -1,5 +1,7 @@
 from __future__ import annotations
 import json
+import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Request, HTTPException
@@ -8,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .database import SessionLocal
 from . import models
+from .doctors import require_profile_secret
 
 router = APIRouter(prefix="/api", tags=["Ads"])
 
@@ -167,3 +170,223 @@ def list_ads_by_clinic(clinic_id: int, db: Session = Depends(get_db)):
             }
         )
     return {"items": result, "count": len(result)}
+
+
+# ==================== NEW AD ENDPOINTS ====================
+
+@router.post("/create_clinic_ad")
+async def create_clinic_ad(
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    إنشاء إعلان عيادة جديد.
+    
+    Body مطلوب:
+    {
+        "created_date": "22/10/2025",
+        "clinic_name": "عيادة الامال الحالمة",
+        "ad_subtitle": "عيادة متخصصة في كل شيء",
+        "ad_description": "وصف الإعلان",
+        "ad_phonenumber": "07885441223",
+        "ad_state": "كركوك",
+        "ad_discount": "30%",
+        "ad_price": "20000",
+        "team_message": "رسالة الفريق",
+        "ad_image_url": "https://...",
+        "clinic_id": 6,
+        "ad_status": false
+    }
+    
+    يتطلب: Doctor-Secret header
+    """
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("Invalid JSON")
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "bad_request", "message": "Invalid JSON body"}}
+        )
+    
+    # التحقق من الحقول المطلوبة
+    required_fields = ["clinic_id", "clinic_name", "ad_image_url", "ad_state"]
+    for field in required_fields:
+        if field not in body or not body[field]:
+            return JSONResponse(
+                status_code=400,
+                content={"error": {"code": "bad_request", "message": f"{field} is required"}}
+            )
+    
+    # توليد ad_ID فريد
+    ad_id = f"{body['clinic_id']}_{uuid.uuid4().hex[:8]}_{int(datetime.now().timestamp())}"
+    
+    # تحويل الأرقام العربية
+    phone = _to_ascii_digits(body.get("ad_phonenumber"))
+    price = _to_ascii_digits(body.get("ad_price"))
+    discount = _to_ascii_digits(body.get("ad_discount"))
+    
+    # معالجة ad_status
+    ad_status = _parse_bool(body.get("ad_status", False))
+    
+    # حساب expired_date (30 يوم من created_date)
+    created_date_str = body.get("created_date", datetime.now().strftime("%d/%m/%Y"))
+    try:
+        created_date = datetime.strptime(created_date_str, "%d/%m/%Y")
+        from datetime import timedelta
+        expired_date = created_date + timedelta(days=30)
+        expired_date_str = expired_date.strftime("%d/%m/%Y")
+    except Exception:
+        # إذا فشل التحويل، استخدم التاريخ الحالي + 30 يوم
+        from datetime import timedelta
+        expired_date = datetime.now() + timedelta(days=30)
+        expired_date_str = expired_date.strftime("%d/%m/%Y")
+    
+    # بناء الـ payload
+    ad_data = {
+        "ad_ID": ad_id,
+        "created_date": created_date_str,
+        "clinic_name": body.get("clinic_name"),
+        "ad_subtitle": body.get("ad_subtitle", ""),
+        "ad_description": body.get("ad_description", ""),
+        "ad_phonenumber": phone,
+        "ad_state": body.get("ad_state"),
+        "ad_discount": discount,
+        "ad_price": price,
+        "team_message": body.get("team_message", ""),
+        "ad_image_url": body.get("ad_image_url"),
+        "clinic_id": int(body["clinic_id"]),
+        "ad_status": ad_status,
+        "expired_date": expired_date_str
+    }
+    
+    # حفظ في قاعدة البيانات
+    ad = models.Ad(
+        clinic_id=int(body["clinic_id"]),
+        payload_json=json.dumps(ad_data, ensure_ascii=False),
+        ad_status=ad_status,
+    )
+    db.add(ad)
+    db.commit()
+    db.refresh(ad)
+    
+    return {
+        "message": "Ad created successfully",
+        "ad_ID": ad_id,
+        "database_id": ad.id,
+        "data": ad_data
+    }
+
+
+@router.get("/get_ad_image")
+def get_ad_image(
+    ad_ID: Optional[str] = None,
+    clinic_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    الحصول على بيانات الإعلان بالصيغة المطلوبة.
+    
+    Query Parameters:
+    - ad_ID: معرّف الإعلان (اختياري)
+    - clinic_id: معرّف العيادة (اختياري)
+    
+    Response:
+    {
+        "ad_ID": "234333_rert34_rre5334",
+        "ad_image": "http://ww.image",
+        "ad_state": "كركوك",
+        "clinic_id": 6,
+        "ad_status": true,
+        "expired_date": "23/10/2025"
+    }
+    
+    يتطلب: Doctor-Secret header
+    """
+    query = db.query(models.Ad)
+    
+    if ad_ID:
+        # البحث بـ ad_ID داخل الـ payload
+        ads = query.all()
+        for ad in ads:
+            try:
+                data = json.loads(ad.payload_json) if ad.payload_json else {}
+                if data.get("ad_ID") == ad_ID:
+                    return {
+                        "ad_ID": data.get("ad_ID"),
+                        "ad_image": data.get("ad_image_url"),
+                        "ad_state": data.get("ad_state"),
+                        "clinic_id": data.get("clinic_id"),
+                        "ad_status": data.get("ad_status", False),
+                        "expired_date": data.get("expired_date")
+                    }
+            except Exception:
+                continue
+        
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "not_found", "message": "Ad not found"}}
+        )
+    
+    elif clinic_id:
+        # البحث بـ clinic_id - إرجاع جميع الإعلانات للعيادة
+        ads = query.filter(models.Ad.clinic_id == clinic_id).order_by(models.Ad.id.desc()).all()
+        result = []
+        
+        for ad in ads:
+            try:
+                data = json.loads(ad.payload_json) if ad.payload_json else {}
+                result.append({
+                    "ad_ID": data.get("ad_ID"),
+                    "ad_image": data.get("ad_image_url"),
+                    "ad_state": data.get("ad_state"),
+                    "clinic_id": data.get("clinic_id"),
+                    "ad_status": data.get("ad_status", False),
+                    "expired_date": data.get("expired_date")
+                })
+            except Exception:
+                continue
+        
+        return {"items": result, "count": len(result)}
+    
+    else:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "bad_request", "message": "Either ad_ID or clinic_id is required"}}
+        )
+
+
+@router.get("/get_all_ads")
+def get_all_ads(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    الحصول على جميع الإعلانات النشطة.
+    
+    Response: قائمة بجميع الإعلانات بالصيغة المطلوبة
+    
+    يتطلب: Doctor-Secret header
+    """
+    ads = db.query(models.Ad).filter(models.Ad.ad_status == True).order_by(models.Ad.id.desc()).all()
+    result = []
+    
+    for ad in ads:
+        try:
+            data = json.loads(ad.payload_json) if ad.payload_json else {}
+            result.append({
+                "ad_ID": data.get("ad_ID"),
+                "ad_image": data.get("ad_image_url"),
+                "ad_state": data.get("ad_state"),
+                "clinic_id": data.get("clinic_id"),
+                "ad_status": data.get("ad_status", False),
+                "expired_date": data.get("expired_date")
+            })
+        except Exception:
+            continue
+    
+    return {"items": result, "count": len(result)}
+
