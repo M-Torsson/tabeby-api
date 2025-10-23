@@ -21,7 +21,7 @@ from .ads import router as ads_router
 from .clinic_status import router as clinic_status_router
 from fastapi.middleware.cors import CORSMiddleware
 from .firebase_init import ensure_firebase_initialized
-from .doctors import _denormalize_profile, _to_ascii_digits, _safe_int  # reuse helpers
+from .doctors import _denormalize_profile, _to_ascii_digits, _safe_int, require_profile_secret  # reuse helpers
 from .cache import cache
 from .rate_limiter import RateLimitMiddleware
 import json
@@ -868,7 +868,10 @@ async def register_user(request: Request):
 
 # إرجاع قائمة الأرقام لكل دور
 @app.get("/auth/check-phone")
-async def check_phone_exists(request: Request):
+async def check_phone_exists(
+    request: Request,
+    _: None = Depends(require_profile_secret)
+):
     """
     فحص رقم الهاتف إذا كان موجود في النظام وإرجاع الـ role الخاص به.
     
@@ -877,7 +880,10 @@ async def check_phone_exists(request: Request):
     - user_role: patient/doctor/secretary (إذا موجود)
     - user_server_id: المعرّف في قاعدة البيانات (إذا موجود)
     
+    يتطلب: Doctor-Secret header
+    
     مثال: GET /auth/check-phone?phone=%2B9647701234567
+           Header: Doctor-Secret: <your-secret>
     """
     phone = request.query_params.get("phone", "").strip()
     
