@@ -676,6 +676,12 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
         }
         if img_url:
             item["profile_image_URL"] = img_url
+        
+        # إضافة المحافظة (state) من general_info.clinic_states
+        clinic_state = g.get("clinic_states") if isinstance(g, dict) else None
+        if clinic_state:
+            item["state"] = clinic_state
+        
         item["specializations"] = specs_full
         out.append(item)
     return out
