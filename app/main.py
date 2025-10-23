@@ -867,6 +867,71 @@ async def register_user(request: Request):
         db.close()
 
 # إرجاع قائمة الأرقام لكل دور
+@app.get("/auth/check-phone")
+async def check_phone_exists(request: Request):
+    """
+    فحص رقم الهاتف إذا كان موجود في النظام وإرجاع الـ role الخاص به.
+    
+    يستقبل رقم الهاتف كـ query parameter ويرجع:
+    - exists: true/false
+    - user_role: patient/doctor/secretary (إذا موجود)
+    - user_server_id: المعرّف في قاعدة البيانات (إذا موجود)
+    
+    مثال: GET /auth/check-phone?phone=%2B9647701234567
+    """
+    phone = request.query_params.get("phone", "").strip()
+    
+    if not phone:
+        return Response(
+            content=json.dumps({
+                "error": {"code": "bad_request", "message": "phone parameter is required"}
+            }),
+            media_type="application/json",
+            status_code=400
+        )
+    
+    # تحويل الأرقام العربية إلى ASCII
+    phone_ascii = _to_ascii_digits(phone).strip()
+    
+    # التحقق من صيغة E.164
+    if not re.match(r"^\+[1-9]\d{6,14}$", phone_ascii):
+        return Response(
+            content=json.dumps({
+                "error": {
+                    "code": "invalid_format",
+                    "message": "phone must be in E.164 format (e.g., +9647701234567)"
+                }
+            }),
+            media_type="application/json",
+            status_code=400
+        )
+    
+    db = SessionLocal()
+    try:
+        # البحث عن رقم الهاتف في جدول UserAccount
+        user = db.query(models.UserAccount).filter(
+            models.UserAccount.phone_number == phone_ascii
+        ).first()
+        
+        if user:
+            return {
+                "exists": True,
+                "phone_number": user.phone_number,
+                "user_role": user.user_role,
+                "user_server_id": user.id,
+                "user_uid": user.user_uid,
+                "message": f"رقم الهاتف موجود مسبقاً كـ {user.user_role}"
+            }
+        else:
+            return {
+                "exists": False,
+                "phone_number": phone_ascii,
+                "message": "رقم الهاتف غير مسجل في النظام"
+            }
+    finally:
+        db.close()
+
+
 @app.get("/auth/phones")
 def list_phones_by_role(role: str):
     if role not in {"patient", "secretary", "doctor"}:
