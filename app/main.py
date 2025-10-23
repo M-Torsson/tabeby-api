@@ -19,6 +19,7 @@ from .bookings import router as bookings_router
 from .golden_bookings import router as golden_bookings_router
 from .ads import router as ads_router
 from .clinic_status import router as clinic_status_router
+from .account_status import router as account_status_router
 from fastapi.middleware.cors import CORSMiddleware
 from .firebase_init import ensure_firebase_initialized
 from .doctors import _denormalize_profile, _to_ascii_digits, _safe_int, require_profile_secret  # reuse helpers
@@ -355,6 +356,7 @@ app.include_router(patient_profiles_router)
 app.include_router(bookings_router)
 app.include_router(golden_bookings_router)
 app.include_router(clinic_status_router)
+app.include_router(account_status_router)
 
 # راوتر توافق لطلبـات قديمة تبدأ بـ /backend (مخفى عن الوثائق)
 from .auth import get_current_admin

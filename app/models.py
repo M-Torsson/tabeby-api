@@ -29,6 +29,7 @@ class PatientProfile(Base):
     phone_number = Column(String, nullable=False, index=True)
     gender = Column(String, nullable=True)
     date_of_birth = Column(String, nullable=True)  # keep as provided format (e.g., DD/MM/YYYY)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)  # حالة تفعيل المريض
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

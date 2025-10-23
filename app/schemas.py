@@ -330,6 +330,7 @@ class PatientProfileResponse(BaseModel):
     phone_number: str
     gender: str | None = None
     date_of_birth: str | None = None
+    is_active: bool = True  # حالة تفعيل المريض
     created_at: datetime
     updated_at: datetime
 
