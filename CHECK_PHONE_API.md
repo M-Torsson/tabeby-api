@@ -2,10 +2,17 @@
 
 ## Endpoint للتحقق من وجود رقم الهاتف قبل التسجيل
 
-### ✅ **تم إنشاء Endpoint جديد:**
+### ✅ **Endpoint:**
 
 ```
 GET /auth/check-phone?phone={phone_number}
+```
+
+### 🔐 **Authentication:**
+
+يتطلب **Doctor-Secret** header:
+```
+Doctor-Secret: <your-secret-value>
 ```
 
 ---
@@ -22,10 +29,14 @@ GET /auth/check-phone?phone={phone_number}
 
 ### **Request:**
 ```http
-GET https://tabeby-api.onrender.com/auth/check-phone?phone=%2B9647701234567
+GET https://tabeby-api.onrender.com/auth/check-phone?phone=+9647701234567
+Headers:
+  Doctor-Secret: <your-secret>
 ```
 
-**ملاحظة:** يجب URL encode للـ `+` → `%2B`
+**ملاحظات:**
+- يمكن كتابة `+` مباشرة أو `%2B` (URL encoded)
+- **يجب** إرسال `Doctor-Secret` header
 
 ---
 
@@ -68,6 +79,14 @@ GET https://tabeby-api.onrender.com/auth/check-phone?phone=%2B9647701234567
 
 ## ❌ **Error Responses:**
 
+### **0. بدون Doctor-Secret header أو خاطئ:**
+```json
+{
+  "detail": "forbidden"
+}
+```
+**Status:** `403`
+
 ### **1. بدون phone parameter:**
 ```json
 {
@@ -102,13 +121,22 @@ Future<Map<String, dynamic>> checkPhoneExists(String phone) async {
     phone = '+964$phone'; // أضف كود العراق افتراضياً
   }
   
-  final encodedPhone = Uri.encodeComponent(phone);
-  final url = 'https://tabeby-api.onrender.com/auth/check-phone?phone=$encodedPhone';
+  final url = 'https://tabeby-api.onrender.com/auth/check-phone?phone=$phone';
   
-  final response = await http.get(Uri.parse(url));
+  // إضافة Doctor-Secret header
+  final headers = {
+    'Doctor-Secret': 'YOUR_SECRET_HERE', // احصل عليه من .env
+  };
+  
+  final response = await http.get(
+    Uri.parse(url),
+    headers: headers,
+  );
   
   if (response.statusCode == 200) {
     return json.decode(response.body);
+  } else if (response.statusCode == 403) {
+    throw Exception('Authentication failed - check Doctor-Secret');
   } else {
     throw Exception('Failed to check phone');
   }
@@ -138,9 +166,13 @@ void handlePhoneCheck() async {
 ```javascript
 async function checkPhoneExists(phone) {
   try {
-    const encodedPhone = encodeURIComponent(phone);
     const response = await axios.get(
-      `https://tabeby-api.onrender.com/auth/check-phone?phone=${encodedPhone}`
+      `https://tabeby-api.onrender.com/auth/check-phone?phone=${phone}`,
+      {
+        headers: {
+          'Doctor-Secret': process.env.DOCTOR_SECRET // من .env
+        }
+      }
     );
     
     if (response.data.exists) {
@@ -164,13 +196,16 @@ async function checkPhoneExists(phone) {
 ### **Python/Requests:**
 ```python
 import requests
-from urllib.parse import quote
+import os
 
 def check_phone_exists(phone: str) -> dict:
-    encoded_phone = quote(phone)
-    url = f"https://tabeby-api.onrender.com/auth/check-phone?phone={encoded_phone}"
+    url = f"https://tabeby-api.onrender.com/auth/check-phone?phone={phone}"
     
-    response = requests.get(url)
+    headers = {
+        'Doctor-Secret': os.getenv('DOCTOR_PROFILE_SECRET')
+    }
+    
+    response = requests.get(url, headers=headers)
     
     if response.status_code == 200:
         data = response.json()
@@ -263,6 +298,7 @@ if (checkResult['user_role'] == 'doctor') {
 ## 🚀 **جاهز للاستخدام الآن!**
 
 ```bash
-# اختبار سريع
-curl "https://tabeby-api.onrender.com/auth/check-phone?phone=%2B9647701234567"
+# اختبار سريع (استبدل YOUR_SECRET بالقيمة الصحيحة)
+curl -H "Doctor-Secret: YOUR_SECRET" \
+  "https://tabeby-api.onrender.com/auth/check-phone?phone=+9647701234567"
 ```
