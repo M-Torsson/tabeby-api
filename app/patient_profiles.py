@@ -99,3 +99,30 @@ def get_patient_profile(
         created_at=prof.created_at,
         updated_at=prof.updated_at,
     )
+
+
+@router.get("/patients/all", response_model=list[schemas.PatientProfileResponse])
+def get_all_patients(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    Get all patient profiles from the database.
+    Requires Doctor-Secret authentication.
+    """
+    profiles = db.query(models.PatientProfile).all()
+    result = []
+    for prof in profiles:
+        ua = db.query(models.UserAccount).filter_by(id=prof.user_account_id).first()
+        if ua:
+            result.append(schemas.PatientProfileResponse(
+                id=prof.id,
+                user_server_id=f"P-{ua.id}",
+                patient_name=prof.patient_name,
+                phone_number=prof.phone_number,
+                gender=prof.gender,
+                date_of_birth=prof.date_of_birth,
+                created_at=prof.created_at,
+                updated_at=prof.updated_at,
+            ))
+    return result
