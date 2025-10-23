@@ -61,7 +61,7 @@ def create_or_update_patient_profile(
         phone_number=prof.phone_number,
         gender=prof.gender,
         date_of_birth=prof.date_of_birth,
-        is_active=prof.is_active,
+        is_active=getattr(prof, 'is_active', True),  # default to True if column doesn't exist yet
         created_at=prof.created_at,
         updated_at=prof.updated_at,
     )
@@ -97,7 +97,7 @@ def get_patient_profile(
         phone_number=prof.phone_number,
         gender=prof.gender,
         date_of_birth=prof.date_of_birth,
-        is_active=prof.is_active,
+        is_active=getattr(prof, 'is_active', True),  # default to True if column doesn't exist yet
         created_at=prof.created_at,
         updated_at=prof.updated_at,
     )
@@ -124,7 +124,7 @@ def get_all_patients(
                 phone_number=prof.phone_number,
                 gender=prof.gender,
                 date_of_birth=prof.date_of_birth,
-                is_active=prof.is_active,
+                is_active=getattr(prof, 'is_active', True),  # default to True if column doesn't exist yet
                 created_at=prof.created_at,
                 updated_at=prof.updated_at,
             ))
