@@ -890,6 +890,15 @@ async def check_phone_exists(request: Request):
             status_code=400
         )
     
+    # إصلاح: إذا كان الرقم يبدأ بمسافة أو بدون +، أضف +
+    # (لأن + في URL يتحول إلى مسافة أحياناً)
+    if phone.startswith(' '):
+        phone = '+' + phone.strip()
+    elif not phone.startswith('+'):
+        # إذا كان الرقم بدون +، حاول إصلاحه
+        if phone[0].isdigit():
+            phone = '+' + phone
+    
     # تحويل الأرقام العربية إلى ASCII
     phone_ascii = _to_ascii_digits(phone).strip()
     
