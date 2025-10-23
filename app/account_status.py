@@ -116,6 +116,13 @@ def update_patient_status(
     if not profile:
         raise HTTPException(status_code=404, detail="patient_profile not found")
     
+    # Check if is_active column exists, if not raise error with helpful message
+    if not hasattr(profile, 'is_active'):
+        raise HTTPException(
+            status_code=500, 
+            detail="Database migration required: run migrations/add_patient_is_active.sql first"
+        )
+    
     # تحديث الحالة
     profile.is_active = payload.is_active
     db.commit()
@@ -150,10 +157,13 @@ def get_patient_status(
     if not profile:
         raise HTTPException(status_code=404, detail="patient_profile not found")
     
+    # Get is_active safely (default to True if column doesn't exist)
+    is_active = getattr(profile, 'is_active', True)
+    
     return {
         "patient_id": patient_id,
         "user_server_id": f"P-{patient_id}",
         "name": profile.patient_name,
-        "status": "active" if profile.is_active else "inactive",
-        "is_active": profile.is_active
+        "status": "active" if is_active else "inactive",
+        "is_active": is_active
     }
