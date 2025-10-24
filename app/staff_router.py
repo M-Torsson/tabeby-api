@@ -11,7 +11,7 @@ from . import models, schemas
 from .rbac import all_permissions, default_roles
 from .doctors import require_profile_secret
 
-router = APIRouter(tags=["Staff & RBAC"])
+router = APIRouter(prefix="/api", tags=["Staff & RBAC"])
 
 # دعم تغيير كلمة مرور الموظف عبر /staff/password (متوافق مع الفرونت)
 
