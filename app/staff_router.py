@@ -11,7 +11,7 @@ from . import models, schemas
 from .rbac import all_permissions, default_roles
 from .doctors import require_profile_secret
 
-router = APIRouter(prefix="/api", tags=["Staff & RBAC"])
+router = APIRouter(tags=["Staff & RBAC"])
 
 # دعم تغيير كلمة مرور الموظف عبر /staff/password (متوافق مع الفرونت)
 
@@ -985,7 +985,7 @@ def deactivate_staff(staff_id: int, db: Session = Depends(get_db), current_admin
     return {"message": "ok"}
 
 
-@router.get("/staff/all")
+@router.get("/api/staff/all")
 def get_all_staff(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
