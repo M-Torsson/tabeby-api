@@ -28,8 +28,13 @@ class DoctorStatusRequest(BaseModel):
 
 
 class PatientStatusRequest(BaseModel):
-    patient_id: int  # user_server_id number (from P-123 -> 123)
+    patient_id: str  # user_server_id format: "P-123" or "123"
     is_active: bool  # true = active, false = inactive
+
+
+class PatientStatusResponse(BaseModel):
+    patient_id: str  # format: "P-123"
+    is_active: bool
 
 
 class StatusResponse(BaseModel):
@@ -95,7 +100,7 @@ def get_doctor_status(
 
 # ===== Patient Status Management =====
 
-@router.post("/patient/status", response_model=StatusResponse)
+@router.post("/patient/status", response_model=PatientStatusResponse)
 def update_patient_status(
     payload: PatientStatusRequest,
     db: Session = Depends(get_db),
@@ -103,11 +108,21 @@ def update_patient_status(
 ):
     """
     تغيير حالة تفعيل المريض
-    - patient_id: رقم المريض (user_server_id بدون P-)
+    - patient_id: معرف المريض بصيغة "P-123" أو "123"
     - is_active: true للتفعيل، false للإيقاف
     """
+    # Parse patient_id: accept "P-123" or "123"
+    patient_id_str = payload.patient_id.strip()
+    if patient_id_str.upper().startswith("P-"):
+        patient_id_str = patient_id_str.split("-", 1)[1]
+    
+    try:
+        patient_id_int = int(patient_id_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid patient_id format; expected P-<id> or <id>")
+    
     # البحث عن UserAccount
-    ua = db.query(models.UserAccount).filter_by(id=payload.patient_id).first()
+    ua = db.query(models.UserAccount).filter_by(id=patient_id_int).first()
     if not ua:
         raise HTTPException(status_code=404, detail="user_account not found")
     
@@ -128,28 +143,33 @@ def update_patient_status(
     db.commit()
     db.refresh(profile)
     
-    status_text = "active" if payload.is_active else "inactive"
-    message = "تم تفعيل المريض بنجاح" if payload.is_active else "تم إيقاف المريض بنجاح"
-    
-    return StatusResponse(
-        id=profile.id,
-        name=profile.patient_name,
-        status=status_text,
-        message=message
+    return PatientStatusResponse(
+        patient_id=f"P-{patient_id_int}",
+        is_active=profile.is_active
     )
 
 
 @router.get("/patient/{patient_id}/status")
 def get_patient_status(
-    patient_id: int,
+    patient_id: str,
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
     """
     الحصول على حالة المريض الحالية
-    patient_id = user_server_id number (from P-123 -> 123)
+    patient_id: معرف المريض بصيغة "P-123" أو "123"
     """
-    ua = db.query(models.UserAccount).filter_by(id=patient_id).first()
+    # Parse patient_id: accept "P-123" or "123"
+    patient_id_str = patient_id.strip()
+    if patient_id_str.upper().startswith("P-"):
+        patient_id_str = patient_id_str.split("-", 1)[1]
+    
+    try:
+        patient_id_int = int(patient_id_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid patient_id format; expected P-<id> or <id>")
+    
+    ua = db.query(models.UserAccount).filter_by(id=patient_id_int).first()
     if not ua:
         raise HTTPException(status_code=404, detail="user_account not found")
     
@@ -161,9 +181,6 @@ def get_patient_status(
     is_active = getattr(profile, 'is_active', True)
     
     return {
-        "patient_id": patient_id,
-        "user_server_id": f"P-{patient_id}",
-        "name": profile.patient_name,
-        "status": "active" if is_active else "inactive",
+        "patient_id": f"P-{patient_id_int}",
         "is_active": is_active
     }
