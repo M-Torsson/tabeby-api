@@ -9,6 +9,7 @@ from .auth import get_current_admin, get_db, oauth2_scheme
 from .security import create_access_token, create_refresh_token, verify_password, get_password_hash, decode_token
 from . import models, schemas
 from .rbac import all_permissions, default_roles
+from .doctors import require_profile_secret
 
 router = APIRouter(tags=["Staff & RBAC"])
 
@@ -982,3 +983,32 @@ def deactivate_staff(staff_id: int, db: Session = Depends(get_db), current_admin
     db.execute(text("UPDATE staff SET status='inactive' WHERE id=:id"), {"id": staff_id})
     db.commit()
     return {"message": "ok"}
+
+
+@router.get("/staff/all")
+def get_all_staff(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    Get all staff members from the database.
+    Requires Doctor-Secret authentication.
+    Similar to /api/patients/all endpoint.
+    """
+    staff_members = db.query(models.Staff).all()
+    result = []
+    
+    for staff in staff_members:
+        result.append({
+            "id": staff.id,
+            "name": staff.name,
+            "email": staff.email,
+            "role_key": getattr(staff, 'role_key', None),
+            "department": getattr(staff, 'department', None),
+            "phone": getattr(staff, 'phone', None),
+            "status": getattr(staff, 'status', 'active'),
+            "avatar_url": getattr(staff, 'avatar_url', None),
+            "created_at": getattr(staff, 'created_at', None)
+        })
+    
+    return result
