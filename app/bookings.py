@@ -266,15 +266,15 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         print(f"🔍 BOOKING DEBUG clinic_days: from={clinic_days_from}, to={clinic_days_to}")
         print(f"🔍 BOOKING DEBUG now_iraq()={now_dt}, today_iraq={today_iraq}, hour={now_dt.hour}")
         
-        # خريطة الأيام العربية
+        # خريطة الأيام العربية (Python weekday: 0=الاثنين، 6=الأحد)
         arabic_days = {
-            6: "السبت",    # Saturday
-            0: "الاحد",    # Sunday
-            1: "الاثنين",   # Monday
-            2: "الثلاثاء",  # Tuesday
-            3: "الاربعاء",  # Wednesday
-            4: "الخميس",   # Thursday
-            5: "الجمعة"    # Friday
+            0: "الاثنين",   # Monday
+            1: "الثلاثاء",  # Tuesday
+            2: "الاربعاء",  # Wednesday
+            3: "الخميس",   # Thursday
+            4: "الجمعة",    # Friday
+            5: "السبت",    # Saturday
+            6: "الاحد"     # Sunday
         }
         
         # ترتيب الأيام
