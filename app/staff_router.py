@@ -1042,6 +1042,10 @@ def create_staff_simple(
     if not email or not password or not name:
         raise HTTPException(status_code=400, detail="يجب إرسال email و password و name")
     
+    # قص كلمة المرور إلى 72 حرف (حد bcrypt)
+    if len(password) > 72:
+        password = password[:72]
+    
     # التحقق من عدم تكرار الإيميل
     existing = db.query(models.Staff).filter(models.Staff.email == email).first()
     if existing:
