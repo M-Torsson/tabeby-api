@@ -1014,6 +1014,76 @@ def get_all_staff(
     return result
 
 
+@router.post("/api/staff/create")
+def create_staff_simple(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    إنشاء موظف جديد
+    
+    Body:
+        {
+            "email": "staff@example.com",
+            "password": "password123",
+            "name": "اسم الموظف",
+            "role_key": "staff",
+            "department": "قسم",
+            "phone": "0771234567"
+        }
+    
+    Returns: بيانات الموظف الجديد
+    """
+    email = payload.get("email")
+    password = payload.get("password")
+    name = payload.get("name")
+    
+    if not email or not password or not name:
+        raise HTTPException(status_code=400, detail="يجب إرسال email و password و name")
+    
+    # التحقق من عدم تكرار الإيميل
+    existing = db.query(models.Staff).filter(models.Staff.email == email).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="الإيميل مستخدم مسبقاً")
+    
+    # إنشاء الموظف
+    from .security import get_password_hash
+    
+    new_staff = models.Staff(
+        email=email,
+        name=name,
+        password_hash=get_password_hash(password)
+    )
+    
+    # إضافة الحقول الاختيارية
+    if "role_key" in payload:
+        setattr(new_staff, 'role_key', payload["role_key"])
+    if "department" in payload:
+        setattr(new_staff, 'department', payload["department"])
+    if "phone" in payload:
+        setattr(new_staff, 'phone', payload["phone"])
+    
+    # تعيين الحالة الافتراضية
+    setattr(new_staff, 'status', 'active')
+    
+    db.add(new_staff)
+    db.commit()
+    db.refresh(new_staff)
+    
+    return {
+        "id": new_staff.id,
+        "name": new_staff.name,
+        "email": new_staff.email,
+        "role_key": getattr(new_staff, 'role_key', None),
+        "department": getattr(new_staff, 'department', None),
+        "phone": getattr(new_staff, 'phone', None),
+        "status": getattr(new_staff, 'status', 'active'),
+        "created_at": getattr(new_staff, 'created_at', None),
+        "message": "تم إنشاء الموظف بنجاح"
+    }
+
+
 @router.post("/api/staff/status")
 def update_staff_status(
     payload: dict,
