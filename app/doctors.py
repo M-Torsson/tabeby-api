@@ -379,18 +379,16 @@ def get_doctors_count_stats(db: Session = Depends(get_db), _: None = Depends(req
     if cached_result is not None:
         return cached_result
     
-    # عدد الدكاترة النشطين (account_status = true)
-    active_count = db.query(models.Doctor).filter(
-        models.Doctor.profile_json.contains('"account_status": true')
-    ).count()
-    
-    # عدد الدكاترة غير النشطين (account_status = false)
-    inactive_count = db.query(models.Doctor).filter(
-        models.Doctor.profile_json.contains('"account_status": false')
-    ).count()
-    
     # العدد الكلي
-    total_count = active_count + inactive_count
+    total_count = db.query(models.Doctor).count()
+    
+    # عدد الدكاترة النشطين (status = 'active')
+    active_count = db.query(models.Doctor).filter(
+        models.Doctor.status == 'active'
+    ).count()
+    
+    # عدد الدكاترة غير النشطين (status != 'active')
+    inactive_count = total_count - active_count
     
     result = {
         "total": total_count,
