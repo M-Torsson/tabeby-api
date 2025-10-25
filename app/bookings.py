@@ -271,7 +271,6 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         clinic_days_to = None
         if doctor and doctor.profile_json:
             try:
-                import json
                 profile = json.loads(doctor.profile_json)
                 clinic_days = profile.get("clinic_days", {})
                 clinic_days_from = clinic_days.get("from")
