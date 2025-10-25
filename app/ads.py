@@ -397,9 +397,9 @@ def get_all_clinic_ads(
     _: None = Depends(require_profile_secret)
 ):
     """
-    الحصول على جميع الإعلانات مع كامل البيانات
+    الحصول على جميع الإعلانات مع كامل البيانات + اسم الدكتور
     
-    Response: جميع الإعلانات بكامل التفاصيل
+    Response: جميع الإعلانات بكامل التفاصيل + doctor_name
     
     يتطلب: Doctor-Secret header
     """
@@ -409,6 +409,19 @@ def get_all_clinic_ads(
     for ad in ads:
         try:
             data = json.loads(ad.payload_json) if ad.payload_json else {}
+            
+            # جلب اسم الدكتور من clinic_id
+            clinic_id = data.get("clinic_id")
+            doctor_name = None
+            
+            if clinic_id:
+                doctor = db.query(models.Doctor).filter(models.Doctor.id == clinic_id).first()
+                if doctor:
+                    doctor_name = doctor.name
+            
+            # إضافة اسم الدكتور للبيانات
+            data["doctor_name"] = doctor_name
+            
             result.append(data)
         except Exception:
             continue
