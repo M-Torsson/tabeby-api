@@ -73,17 +73,10 @@ def parse_iraq_datetime(date_string: str, format_str: str = "%Y-%m-%d %H:%M:%S")
     return dt.astimezone(timezone.utc)
 
 
-# Legacy support: keep utcnow for backward compatibility but return Iraq time
+# Legacy support: keep utcnow for backward compatibility
 def now_utc_for_storage() -> datetime:
     """
-    Get current Iraq time for database storage (naive datetime in Iraq timezone)
-    This stores Iraq time directly in database instead of UTC
+    Get current UTC time for database storage (standard UTC)
+    Returns naive datetime in UTC timezone
     """
-    # Get current UTC time
-    utc_now = datetime.now(timezone.utc)
-    
-    # Convert to Iraq time (UTC+3)
-    iraq_time = utc_now + timedelta(hours=3)
-    
-    # Return as naive datetime (without timezone info) in Iraq time
-    return iraq_time.replace(tzinfo=None)
+    return datetime.utcnow()
