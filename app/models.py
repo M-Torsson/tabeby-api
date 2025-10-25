@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, U
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
+from .timezone_utils import now_utc_for_storage
 
 # ===== User Accounts (role + phone, global id) =====
 
@@ -15,7 +16,7 @@ class UserAccount(Base):
     phone_number = Column(String, nullable=False, unique=True, index=True)
     # روابط اختيارية إلى جداول المجال
     doctor_id = Column(Integer, ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
 
 
 # ===== Patient Profile (per user account) =====
@@ -30,8 +31,8 @@ class PatientProfile(Base):
     gender = Column(String, nullable=True)
     date_of_birth = Column(String, nullable=True)  # keep as provided format (e.g., DD/MM/YYYY)
     is_active = Column(Boolean, default=True, nullable=False, index=True)  # حالة تفعيل المريض
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
 
 class Patient(Base):
     __tablename__ = "patients"
@@ -50,7 +51,7 @@ class Admin(Base):
     password_hash = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
     # تمت إزالة دعم 2FA وتفضيلات التنبيه لتبسيط النظام
 
     refresh_tokens = relationship("RefreshToken", back_populates="admin", cascade="all, delete-orphan")
@@ -67,7 +68,7 @@ class RefreshToken(Base):
     admin_id = Column(Integer, ForeignKey("admins.id", ondelete="CASCADE"), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     revoked = Column(Boolean, default=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
     # session metadata (تمت إزالة الأعمدة غير الموجودة من قاعدة البيانات)
 
     admin = relationship("Admin", back_populates="refresh_tokens")
@@ -79,7 +80,7 @@ class BlacklistedToken(Base):
     id = Column(Integer, primary_key=True)
     jti = Column(String, unique=True, index=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
 
 
 class PasswordResetToken(Base):
@@ -90,7 +91,7 @@ class PasswordResetToken(Base):
     admin_id = Column(Integer, ForeignKey("admins.id", ondelete="CASCADE"), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used = Column(Boolean, default=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
 
 
 class RecoveryCode(Base):
@@ -100,7 +101,7 @@ class RecoveryCode(Base):
     admin_id = Column(Integer, ForeignKey("admins.id", ondelete="CASCADE"), index=True, nullable=False)
     code = Column(String, unique=True, index=True, nullable=False)
     used = Column(Boolean, default=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
 
 
 class Activity(Base):
@@ -113,7 +114,7 @@ class Activity(Base):
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
     status = Column(String, index=True, nullable=False)
-    at = Column(DateTime, index=True, nullable=False, default=datetime.utcnow)
+    at = Column(DateTime, index=True, nullable=False, default=now_utc_for_storage)
 
 # فهارس مفيدة
 Index("ix_activities_admin_at_desc", Activity.admin_id, Activity.at.desc()) if False else None
@@ -161,7 +162,7 @@ class Staff(Base):
     status = Column(String, index=True, nullable=False, default="active")
     avatar_url = Column(String, nullable=True)
     password_hash = Column(String, nullable=True)  # optional credential for staff login (separate from admins)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
 
     admin = relationship("Admin", back_populates="staff")
     role = relationship("Role", back_populates="staff")
@@ -200,8 +201,8 @@ class Department(Base):
     working_hours = Column(String(255), nullable=True)
     budget = Column(DECIMAL(10, 2), nullable=True)
     manager_id = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
 
 # ===== Doctor Profile (raw JSON persisted) =====
 
@@ -211,8 +212,8 @@ class DoctorProfile(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     slug = Column(String(100), unique=True, nullable=False, default="default")
     raw_json = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
 
 # ===== Doctors (denormalized + raw profile_json) =====
 
@@ -230,8 +231,8 @@ class Doctor(Base):
     experience_years = Column(Integer, nullable=True)
     patients_count = Column(Integer, nullable=True)
     profile_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
 
 # ===== Secretaries (for secretary code generation) =====
 
@@ -244,7 +245,7 @@ class Secretary(Base):
     doctor_name = Column(String, nullable=False)
     secretary_name = Column(String, nullable=False)
     created_date = Column(String, nullable=False)  # storing as string as per API spec
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
 
 
 # ===== Ads (raw JSON payload per clinic) =====
@@ -257,7 +258,7 @@ class Ad(Base):
     # store the full ad JSON (normalized) exactly as sent by client
     payload_json = Column(Text, nullable=False)
     ad_status = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
 
     # helpful index
     __table_args__ = (
@@ -272,8 +273,8 @@ class BookingTable(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     clinic_id = Column(Integer, index=True, nullable=False)
     days_json = Column(Text, nullable=False)  # full JSON structure of days
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
     __table_args__ = (
         Index("ix_booking_tables_clinic", "clinic_id"),
     )
@@ -292,8 +293,8 @@ class BookingArchive(Base):
     capacity_served = Column(Integer, nullable=True)
     capacity_cancelled = Column(Integer, nullable=True)
     patients_json = Column(Text, nullable=False)  # نسخة مبسطة من المرضى
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
 
     __table_args__ = (
         Index("ix_booking_archives_clinic_date", "clinic_id", "table_date"),
@@ -308,8 +309,8 @@ class GoldenBookingTable(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     clinic_id = Column(Integer, index=True, nullable=False)
     days_json = Column(Text, nullable=False)  # golden book days structure
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
     __table_args__ = (
         Index("ix_golden_booking_tables_clinic", "clinic_id"),
     )
@@ -327,8 +328,8 @@ class GoldenBookingArchive(Base):
     capacity_served = Column(Integer, nullable=True)
     capacity_cancelled = Column(Integer, nullable=True)
     patients_json = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
 
     __table_args__ = (
         Index("ix_golden_booking_archives_clinic_date", "clinic_id", "table_date"),
@@ -343,5 +344,5 @@ class ClinicStatus(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     clinic_id = Column(Integer, unique=True, index=True, nullable=False)
     is_closed = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=now_utc_for_storage)
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)

@@ -25,6 +25,7 @@ from .firebase_init import ensure_firebase_initialized
 from .doctors import _denormalize_profile, _to_ascii_digits, _safe_int, require_profile_secret  # reuse helpers
 from .cache import cache
 from .rate_limiter import RateLimitMiddleware
+from .timezone_middleware import IraqTimezoneMiddleware
 import json
 import uuid
 import re
@@ -83,6 +84,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add Iraq Timezone Middleware to convert all datetime responses
+app.add_middleware(IraqTimezoneMiddleware)
 
 # Startup Event
 @app.on_event("startup")
