@@ -361,6 +361,49 @@ def list_doctors(
     return result
 
 
+@router.get("/doctors/stats/count")
+def get_doctors_count_stats(db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
+    """
+    الحصول على إحصائيات عدد الدكاترة حسب الحالة
+    
+    Returns:
+        {
+            "total": 150,
+            "active": 120,
+            "inactive": 30
+        }
+    """
+    # محاولة الحصول من الكاش
+    cache_key = "doctors:stats:count"
+    cached_result = cache.get(cache_key)
+    if cached_result is not None:
+        return cached_result
+    
+    # عدد الدكاترة النشطين (account_status = true)
+    active_count = db.query(models.Doctor).filter(
+        models.Doctor.profile_json.contains('"account_status": true')
+    ).count()
+    
+    # عدد الدكاترة غير النشطين (account_status = false)
+    inactive_count = db.query(models.Doctor).filter(
+        models.Doctor.profile_json.contains('"account_status": false')
+    ).count()
+    
+    # العدد الكلي
+    total_count = active_count + inactive_count
+    
+    result = {
+        "total": total_count,
+        "active": active_count,
+        "inactive": inactive_count
+    }
+    
+    # حفظ في الكاش لمدة 5 دقائق
+    cache.set(cache_key, result, ttl=300)
+    
+    return result
+
+
 @router.get("/doctors/{doctor_id}")
 def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
     # تحقق من الكاش أولاً
