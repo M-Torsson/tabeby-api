@@ -535,4 +535,99 @@ def delete_ad(
     )
 
 
+@router.post("/update_ad")
+def update_ad(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    تعديل بيانات الإعلان (الحقول المسموح بتعديلها فقط)
+    
+    Body:
+    {
+        "ad_ID": "85_abc123_1234567890",
+        "created_date": "23/10/2025",
+        "clinic_name": "عيادة الأسنان",
+        "ad_image_url": "https://...",
+        "ad_status": "active",
+        "ad_phone": "٠١٠١٢٣٤٥٦٧٨",
+        "ad_description": "عرض خاص",
+        "ad_state": "القاهرة",
+        "ad_price": "١٠٠",
+        "discount_percentage": "٢٠",
+        "clinic_address": "شارع ...",
+        "ad_location": "https://..."
+    }
+    
+    يتطلب: Doctor-Secret header
+    """
+    ad_id = payload.get("ad_ID")
+    if not ad_id:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "bad_request", "message": "ad_ID is required"}}
+        )
+    
+    # الحقول المسموح بتعديلها
+    allowed_fields = [
+        "created_date",
+        "clinic_name",
+        "ad_image_url",
+        "ad_status",
+        "ad_phone",
+        "ad_phonenumber",  # للتوافق مع النسخة القديمة
+        "ad_description",
+        "ad_state",
+        "ad_price",
+        "discount_percentage",
+        "ad_discount",  # للتوافق مع النسخة القديمة
+        "clinic_address",
+        "ad_location"
+    ]
+    
+    # البحث عن الإعلان
+    ads = db.query(models.Ad).all()
+    
+    for ad in ads:
+        try:
+            data = json.loads(ad.payload_json) if ad.payload_json else {}
+            if data.get("ad_ID") == ad_id:
+                # تحديث الحقول المسموح بها فقط
+                for field in allowed_fields:
+                    if field in payload:
+                        # معالجة خاصة للأرقام
+                        if field in ["ad_phone", "ad_phonenumber"]:
+                            data["ad_phonenumber"] = _to_ascii_digits(payload[field])
+                        elif field in ["ad_price"]:
+                            data["ad_price"] = _to_ascii_digits(payload[field])
+                        elif field in ["discount_percentage", "ad_discount"]:
+                            data["ad_discount"] = _to_ascii_digits(payload[field])
+                        elif field == "ad_status":
+                            # تحويل ad_status إلى boolean
+                            status_value = _parse_bool(payload[field])
+                            data["ad_status"] = status_value
+                            ad.ad_status = status_value
+                        else:
+                            data[field] = payload[field]
+                
+                # حفظ التغييرات
+                ad.payload_json = json.dumps(data, ensure_ascii=False)
+                db.add(ad)
+                db.commit()
+                db.refresh(ad)
+                
+                return {
+                    "message": "تم تحديث الإعلان بنجاح",
+                    "ad_ID": ad_id,
+                    "updated_data": data
+                }
+        except Exception as e:
+            continue
+    
+    return JSONResponse(
+        status_code=404,
+        content={"error": {"code": "not_found", "message": "Ad not found"}}
+    )
+
 
