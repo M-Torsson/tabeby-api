@@ -85,8 +85,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add Iraq Timezone Middleware to convert all datetime responses
-app.add_middleware(IraqTimezoneMiddleware)
+# Iraq Timezone Middleware disabled temporarily - causes response issues
+# TODO: Fix middleware implementation
+# app.add_middleware(IraqTimezoneMiddleware)
 
 # Startup Event
 @app.on_event("startup")
