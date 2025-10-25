@@ -496,13 +496,22 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     print(f"🔍 BOOKING DEBUG before save: date_key={date_key}, days.keys()={list(days.keys())[-3:]}")
 
     # حفظ
-    bt.days_json = json.dumps(days, ensure_ascii=False)
-    
-    print(f"🔍 BOOKING DEBUG after save: days_json first 300 chars={bt.days_json[:300]}")
-    
-    db.add(bt)
-    db.commit()
-    db.refresh(bt)
+    try:
+        bt.days_json = json.dumps(days, ensure_ascii=False)
+        print(f"🔍 BOOKING DEBUG after json.dumps: days_json length={len(bt.days_json)}")
+        
+        db.add(bt)
+        print(f"🔍 BOOKING DEBUG after db.add")
+        
+        db.commit()
+        print(f"🔍 BOOKING DEBUG after db.commit")
+        
+        db.refresh(bt)
+        print(f"🔍 BOOKING DEBUG after db.refresh")
+    except Exception as e:
+        print(f"🔍 ERROR in database operation: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"خطأ في حفظ البيانات: {str(e)}")
     
     # حذف الكاش بعد التحديث
     from .cache import cache
