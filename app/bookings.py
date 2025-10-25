@@ -249,10 +249,65 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         current_date = today_iraq
         max_days = 30
         
+        # جلب أيام عمل العيادة من profile
+        doctor = db.query(models.Doctor).filter(models.Doctor.id == clinic_id).first()
+        clinic_days_from = None
+        clinic_days_to = None
+        if doctor and doctor.profile_json:
+            try:
+                import json
+                profile = json.loads(doctor.profile_json)
+                clinic_days = profile.get("clinic_days", {})
+                clinic_days_from = clinic_days.get("from")
+                clinic_days_to = clinic_days.get("to")
+            except Exception:
+                pass
+        
+        print(f"🔍 BOOKING DEBUG clinic_days: from={clinic_days_from}, to={clinic_days_to}")
         print(f"🔍 BOOKING DEBUG now_iraq()={now_dt}, today_iraq={today_iraq}, hour={now_dt.hour}")
-        print(f"🔍 BOOKING DEBUG UTC now={dt.now(tz.utc)}")
+        
+        # خريطة الأيام العربية
+        arabic_days = {
+            6: "السبت",    # Saturday
+            0: "الاحد",    # Sunday
+            1: "الاثنين",   # Monday
+            2: "الثلاثاء",  # Tuesday
+            3: "الاربعاء",  # Wednesday
+            4: "الخميس",   # Thursday
+            5: "الجمعة"    # Friday
+        }
+        
+        # ترتيب الأيام
+        day_order = ["السبت", "الاحد", "الاثنين", "الثلاثاء", "الاربعاء", "الخميس", "الجمعة"]
         
         for _ in range(max_days):
+            date_str = current_date.strftime("%Y-%m-%d")
+            weekday = current_date.weekday()
+            day_name_ar = arabic_days.get(weekday)
+            
+            print(f"🔍 BOOKING DEBUG checking date={date_str}, weekday={weekday}, day_name={day_name_ar}")
+            
+            # التحقق من أيام العمل
+            if clinic_days_from and clinic_days_to and day_name_ar:
+                try:
+                    from_idx = day_order.index(clinic_days_from)
+                    to_idx = day_order.index(clinic_days_to)
+                    current_idx = day_order.index(day_name_ar)
+                    
+                    # التحقق إذا كان اليوم ضمن نطاق أيام العمل
+                    is_working_day = False
+                    if from_idx <= to_idx:
+                        is_working_day = from_idx <= current_idx <= to_idx
+                    else:  # نطاق يمر عبر نهاية الأسبوع
+                        is_working_day = current_idx >= from_idx or current_idx <= to_idx
+                    
+                    if not is_working_day:
+                        print(f"🔍 BOOKING DEBUG skipping {date_str} - not a working day ({day_name_ar})")
+                        current_date += timedelta(days=1)
+                        continue
+                except Exception as e:
+                    print(f"🔍 BOOKING DEBUG error checking working days: {e}")
+            
             date_str = current_date.strftime("%Y-%m-%d")
             print(f"🔍 BOOKING DEBUG current_date={current_date}, date_str={date_str}")
             
