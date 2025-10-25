@@ -1021,78 +1021,64 @@ def create_staff_simple(
     _: None = Depends(require_profile_secret)
 ):
     """
-    إنشاء موظف جديد
-    
-    Body:
-        {
-            "email": "staff@example.com",
-            "password": "password123",
-            "name": "اسم الموظف",
-            "role_key": "staff",
-            "department": "قسم",
-            "phone": "0771234567"
-        }
-    
-    Returns: بيانات الموظف الجديد
+    إنشاء موظف جديد - نسخة بسيطة مع Doctor-Secret فقط
     """
-    email = payload.get("email")
-    password = payload.get("password")
-    name = payload.get("name")
-    
-    if not email or not password or not name:
-        raise HTTPException(status_code=400, detail="يجب إرسال email و password و name")
-    
-    # قص كلمة المرور إلى 72 حرف (حد bcrypt)
-    if len(password) > 72:
-        password = password[:72]
-    
-    # التحقق من عدم تكرار الإيميل
-    existing = db.query(models.Staff).filter(models.Staff.email == email).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="الإيميل مستخدم مسبقاً")
-    
-    # إنشاء الموظف
     try:
-        from .security import get_password_hash
+        email = payload.get("email")
+        password = payload.get("password", "")
+        name = payload.get("name")
         
+        if not email or not name:
+            raise HTTPException(status_code=400, detail="يجب إرسال email و name")
+        
+        # قص كلمة المرور إلى 72 بايت (حد bcrypt الأقصى)
+        password_bytes = password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
+        
+        # التحقق من عدم تكرار الإيميل
+        existing = db.query(models.Staff).filter(models.Staff.email == email).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="الإيميل مستخدم مسبقاً")
+        
+        # hash كلمة المرور
+        import bcrypt
+        password_hash = bcrypt.hashpw(password_bytes.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        # إنشاء الموظف
         new_staff = models.Staff(
             email=email,
             name=name,
-            password_hash=get_password_hash(password)
+            password_hash=password_hash
         )
         
         # إضافة الحقول الاختيارية
         if "role_key" in payload:
-            setattr(new_staff, 'role_key', payload["role_key"])
+            new_staff.role_key = payload["role_key"]
         if "department" in payload:
-            setattr(new_staff, 'department', payload["department"])
+            new_staff.department = payload["department"]
         if "phone" in payload:
-            setattr(new_staff, 'phone', payload["phone"])
+            new_staff.phone = payload["phone"]
         
-        # تعيين الحالة الافتراضية
-        setattr(new_staff, 'status', 'active')
+        # تعيين الحالة
+        new_staff.status = 'active'
         
         db.add(new_staff)
         db.commit()
         db.refresh(new_staff)
         
         return {
+            "success": True,
             "id": new_staff.id,
             "name": new_staff.name,
             "email": new_staff.email,
-            "role_key": getattr(new_staff, 'role_key', None),
-            "department": getattr(new_staff, 'department', None),
-            "phone": getattr(new_staff, 'phone', None),
-            "status": getattr(new_staff, 'status', 'active'),
-            "created_at": getattr(new_staff, 'created_at', None),
             "message": "تم إنشاء الموظف بنجاح"
         }
+        
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
-        print(f"❌ ERROR creating staff: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"خطأ في إنشاء الموظف: {str(e)}")
+        print(f"❌ ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"خطأ: {str(e)}")
 
 
 @router.post("/api/staff/status")
