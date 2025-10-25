@@ -214,6 +214,8 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         
         date_key = payload.date
         
+        print(f"🔍 SECRETARY BOOKING date_key={date_key}, existing_days={list(days.keys())}")
+        
         # إنشاء اليوم إذا لم يكن موجوداً
         if date_key not in days:
             # محاولة الحصول على السعة من آخر يوم موجود
@@ -224,8 +226,8 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                     last_day_obj = days.get(last_day, {})
                     if isinstance(last_day_obj, dict):
                         ref_capacity = last_day_obj.get("capacity_total", 20)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"🔍 ERROR getting ref_capacity: {e}")
             
             day_obj = {
                 "source": "secretary_app",
@@ -235,8 +237,22 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                 "patients": []
             }
             days[date_key] = day_obj
+            print(f"🔍 Created new day: {date_key}")
         else:
             day_obj = days[date_key]
+            print(f"🔍 Using existing day: {date_key}, day_obj type={type(day_obj)}")
+            
+            # التحقق من صحة البنية
+            if not isinstance(day_obj, dict):
+                print(f"🔍 ERROR: day_obj is not dict! Converting...")
+                day_obj = {
+                    "source": "secretary_app",
+                    "status": "open",
+                    "capacity_total": 20,
+                    "capacity_used": 0,
+                    "patients": []
+                }
+                days[date_key] = day_obj
         
         final_date = date_key
     
