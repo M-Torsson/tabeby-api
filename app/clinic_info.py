@@ -23,20 +23,19 @@ def save_clinic_info(
 ):
     """
     حفظ أو تحديث معلومات العيادة
+    clinic_id ثابت = 1 دائماً
     
     Body:
     {
-        "clinic_id": 123,
-        "clinic_name": "MedixPro Clinic",
+        "clinic_name": "Tabeby",
         "address": "123 Medical Plaza...",
         "email": "contact@medixpro-clinic.com",
-        "phone": "+1 (555) 123-4567",
+        "phone": "+9647755841",
         "website": "https://medixpro-clinic.com"
     }
     """
-    clinic_id = payload.get("clinic_id")
-    if not clinic_id:
-        raise HTTPException(status_code=400, detail="يجب إرسال clinic_id")
+    # clinic_id ثابت = 1
+    clinic_id = 1
     
     # البحث عن الدكتور
     doctor = db.query(models.Doctor).filter(models.Doctor.id == clinic_id).first()
@@ -82,15 +81,17 @@ def save_clinic_info(
     }
 
 
-@router.get("/clinic/info/{clinic_id}")
+@router.get("/clinic/info")
 def get_clinic_info(
-    clinic_id: int,
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
     """
     الحصول على معلومات العيادة
+    clinic_id ثابت = 1 دائماً
     """
+    clinic_id = 1
+    
     doctor = db.query(models.Doctor).filter(models.Doctor.id == clinic_id).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="العيادة غير موجودة")
