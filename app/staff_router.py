@@ -1012,3 +1012,104 @@ def get_all_staff(
         })
     
     return result
+
+
+@router.post("/api/staff/status")
+def update_staff_status(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    تحديث حالة الموظف (مفعل/غير مفعل)
+    
+    Body:
+        {
+            "staff_id": 35,
+            "is_active": false
+        }
+    
+    Returns:
+        {
+            "staff_id": 35,
+            "is_active": false,
+            "message": "تم تحديث حالة الموظف بنجاح"
+        }
+    """
+    staff_id = payload.get("staff_id")
+    is_active = payload.get("is_active")
+    
+    if staff_id is None:
+        raise HTTPException(status_code=400, detail="يجب إرسال staff_id")
+    if is_active is None:
+        raise HTTPException(status_code=400, detail="يجب إرسال is_active")
+    
+    # التحقق من وجود الموظف
+    staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="الموظف غير موجود")
+    
+    # تحديث الحالة
+    new_status = "active" if is_active else "inactive"
+    db.execute(text("UPDATE staff SET status=:status WHERE id=:id"), {"status": new_status, "id": staff_id})
+    db.commit()
+    
+    return {
+        "staff_id": staff_id,
+        "is_active": is_active,
+        "status": new_status,
+        "message": "تم تحديث حالة الموظف بنجاح"
+    }
+
+
+@router.patch("/api/staff/{staff_id}")
+def update_staff_info(
+    staff_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    تعديل معلومات الموظف
+    
+    Body:
+        {
+            "name": "اسم جديد",
+            "email": "new@email.com",
+            "phone": "0771234567",
+            "department": "قسم جديد"
+        }
+    
+    Returns: بيانات الموظف المحدثة
+    """
+    # التحقق من وجود الموظف
+    staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="الموظف غير موجود")
+    
+    # تحديث الحقول المرسلة فقط
+    if "name" in payload and payload["name"]:
+        staff.name = payload["name"]
+    if "email" in payload and payload["email"]:
+        staff.email = payload["email"]
+    if "phone" in payload:
+        setattr(staff, 'phone', payload["phone"])
+    if "department" in payload:
+        setattr(staff, 'department', payload["department"])
+    
+    db.add(staff)
+    db.commit()
+    db.refresh(staff)
+    
+    return {
+        "id": staff.id,
+        "name": staff.name,
+        "email": staff.email,
+        "role_key": getattr(staff, 'role_key', None),
+        "department": getattr(staff, 'department', None),
+        "phone": getattr(staff, 'phone', None),
+        "status": getattr(staff, 'status', 'active'),
+        "avatar_url": getattr(staff, 'avatar_url', None),
+        "created_at": getattr(staff, 'created_at', None),
+        "message": "تم تحديث معلومات الموظف بنجاح"
+    }
