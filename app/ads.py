@@ -390,3 +390,87 @@ def get_all_ads(
     
     return {"items": result, "count": len(result)}
 
+
+@router.get("/clinic_ads")
+def get_all_clinic_ads(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    الحصول على جميع الإعلانات مع كامل البيانات
+    
+    Response: جميع الإعلانات بكامل التفاصيل
+    
+    يتطلب: Doctor-Secret header
+    """
+    ads = db.query(models.Ad).order_by(models.Ad.id.desc()).all()
+    result = []
+    
+    for ad in ads:
+        try:
+            data = json.loads(ad.payload_json) if ad.payload_json else {}
+            result.append(data)
+        except Exception:
+            continue
+    
+    return {"items": result, "count": len(result)}
+
+
+@router.post("/toggle_ad_status")
+def toggle_ad_status(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    تغيير حالة الإعلان من active إلى inactive أو العكس
+    
+    Body:
+    {
+        "ad_ID": "234333_rert34_rre5334"
+    }
+    
+    يتطلب: Doctor-Secret header
+    """
+    ad_id = payload.get("ad_ID")
+    if not ad_id:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "bad_request", "message": "ad_ID is required"}}
+        )
+    
+    # البحث عن الإعلان
+    ads = db.query(models.Ad).all()
+    
+    for ad in ads:
+        try:
+            data = json.loads(ad.payload_json) if ad.payload_json else {}
+            if data.get("ad_ID") == ad_id:
+                # عكس الحالة
+                current_status = data.get("ad_status", False)
+                new_status = not current_status
+                
+                # تحديث البيانات
+                data["ad_status"] = new_status
+                ad.payload_json = json.dumps(data, ensure_ascii=False)
+                ad.ad_status = new_status
+                
+                db.add(ad)
+                db.commit()
+                db.refresh(ad)
+                
+                return {
+                    "message": "تم تغيير حالة الإعلان بنجاح",
+                    "ad_ID": ad_id,
+                    "old_status": current_status,
+                    "new_status": new_status
+                }
+        except Exception:
+            continue
+    
+    return JSONResponse(
+        status_code=404,
+        content={"error": {"code": "not_found", "message": "Ad not found"}}
+    )
+
+
