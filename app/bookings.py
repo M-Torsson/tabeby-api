@@ -242,12 +242,13 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     
     # للمريض: البحث التلقائي عن أقرب يوم متاح
     else:  # patient_app
-        # نبدأ من اليوم الحالي
-        today = dt.now(tz.utc).date()
-        current_date = today
+        # نبدأ من اليوم الحالي بتوقيت العراق
+        from .timezone_utils import now_iraq
+        today_iraq = now_iraq().date()
+        current_date = today_iraq
         max_days = 30
         
-        print(f"🔍 BOOKING DEBUG today={today}, type={type(today)}")
+        print(f"🔍 BOOKING DEBUG today_iraq={today_iraq}, type={type(today_iraq)}")
         
         for _ in range(max_days):
             date_str = current_date.strftime("%Y-%m-%d")
