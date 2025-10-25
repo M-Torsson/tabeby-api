@@ -270,15 +270,15 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         arabic_days = {
             0: "الاثنين",   # Monday
             1: "الثلاثاء",  # Tuesday
-            2: "الاربعاء",  # Wednesday
+            2: "الأربعاء",  # Wednesday (with همزة)
             3: "الخميس",   # Thursday
             4: "الجمعة",    # Friday
             5: "السبت",    # Saturday
-            6: "الاحد"     # Sunday
+            6: "الأحد"     # Sunday (with همزة)
         }
         
         # ترتيب الأيام
-        day_order = ["السبت", "الاحد", "الاثنين", "الثلاثاء", "الاربعاء", "الخميس", "الجمعة"]
+        day_order = ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"]
         
         for _ in range(max_days):
             date_str = current_date.strftime("%Y-%m-%d")
