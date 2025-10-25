@@ -214,8 +214,6 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         
         date_key = payload.date
         
-        print(f"🔍 SECRETARY BOOKING date_key={date_key}, existing_days={list(days.keys())}")
-        
         # إنشاء اليوم إذا لم يكن موجوداً
         if date_key not in days:
             # محاولة الحصول على السعة من آخر يوم موجود
@@ -226,8 +224,8 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                     last_day_obj = days.get(last_day, {})
                     if isinstance(last_day_obj, dict):
                         ref_capacity = last_day_obj.get("capacity_total", 20)
-                except Exception as e:
-                    print(f"🔍 ERROR getting ref_capacity: {e}")
+                except Exception:
+                    pass
             
             day_obj = {
                 "source": "secretary_app",
@@ -237,14 +235,11 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                 "patients": []
             }
             days[date_key] = day_obj
-            print(f"🔍 Created new day: {date_key}")
         else:
             day_obj = days[date_key]
-            print(f"🔍 Using existing day: {date_key}, day_obj type={type(day_obj)}")
             
             # التحقق من صحة البنية
             if not isinstance(day_obj, dict):
-                print(f"🔍 ERROR: day_obj is not dict! Converting...")
                 day_obj = {
                     "source": "secretary_app",
                     "status": "open",
@@ -278,9 +273,6 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
             except Exception:
                 pass
         
-        print(f"🔍 BOOKING DEBUG clinic_days: from={clinic_days_from}, to={clinic_days_to}")
-        print(f"🔍 BOOKING DEBUG now_iraq()={now_dt}, today_iraq={today_iraq}, hour={now_dt.hour}")
-        
         # خريطة الأيام العربية (Python weekday: 0=الاثنين، 6=الأحد)
         arabic_days = {
             0: "الاثنين",   # Monday
@@ -309,8 +301,6 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
             weekday = current_date.weekday()
             day_name_ar = arabic_days.get(weekday)
             
-            print(f"🔍 BOOKING DEBUG checking date={date_str}, weekday={weekday}, day_name={day_name_ar}")
-            
             # التحقق من أيام العمل
             if clinic_days_from and clinic_days_to and day_name_ar:
                 try:
@@ -334,14 +324,12 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                         is_working_day = current_idx >= from_idx or current_idx <= to_idx
                     
                     if not is_working_day:
-                        print(f"🔍 BOOKING DEBUG skipping {date_str} - not a working day ({day_name_ar})")
                         current_date += timedelta(days=1)
                         continue
-                except Exception as e:
-                    print(f"🔍 BOOKING DEBUG error checking working days: {e}")
+                except Exception:
+                    pass
             
             date_str = current_date.strftime("%Y-%m-%d")
-            print(f"🔍 BOOKING DEBUG current_date={current_date}, date_str={date_str}")
             
             # التحقق إذا كان اليوم موجوداً
             if date_str in days:
@@ -350,7 +338,6 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                     # تخطي الأيام المغلقة (عطلات)
                     day_status = day_obj.get("status", "open")
                     if day_status == "closed":
-                        print(f"🔍 BOOKING DEBUG skipping {date_str} - status is closed")
                         current_date += timedelta(days=1)
                         continue
                     
@@ -408,8 +395,6 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     # الآن لدينا final_date و day_obj
     date_key = final_date
     day_obj = days[date_key]
-    
-    print(f"🔍 BOOKING DEBUG final_date={final_date}, date_key={date_key}")
     
     # التحقق من الحقول الأساسية
     patients_list = day_obj.get("patients", [])
@@ -492,23 +477,13 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     day_obj["patients"] = patients_list
     days[date_key] = day_obj
 
-    print(f"🔍 BOOKING DEBUG before save: date_key={date_key}, days.keys()={list(days.keys())[-3:]}")
-
     # حفظ
     try:
         bt.days_json = json.dumps(days, ensure_ascii=False)
-        print(f"🔍 BOOKING DEBUG after json.dumps: days_json length={len(bt.days_json)}")
-        
         db.add(bt)
-        print(f"🔍 BOOKING DEBUG after db.add")
-        
         db.commit()
-        print(f"🔍 BOOKING DEBUG after db.commit")
-        
         db.refresh(bt)
-        print(f"🔍 BOOKING DEBUG after db.refresh")
     except Exception as e:
-        print(f"🔍 ERROR in database operation: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"خطأ في حفظ البيانات: {str(e)}")
     

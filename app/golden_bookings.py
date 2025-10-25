@@ -270,15 +270,8 @@ def patient_golden_booking(
     day_obj["patients"] = patients
     day_obj["capacity_used"] = capacity_used + 1
     
-    # DEBUG: print before saving
-    print(f"🔍 DEBUG final_date={final_date}, type={type(final_date)}")
-    print(f"🔍 DEBUG days keys before save: {list(days.keys())}")
-    
     days[final_date] = day_obj
     gt.days_json = json.dumps(days, ensure_ascii=False)
-    
-    # DEBUG: print after saving
-    print(f"🔍 DEBUG days_json after save: {gt.days_json[:200]}")
     
     db.add(gt)
     db.commit()
