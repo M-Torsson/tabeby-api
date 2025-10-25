@@ -1048,40 +1048,47 @@ def create_staff_simple(
         raise HTTPException(status_code=409, detail="الإيميل مستخدم مسبقاً")
     
     # إنشاء الموظف
-    from .security import get_password_hash
-    
-    new_staff = models.Staff(
-        email=email,
-        name=name,
-        password_hash=get_password_hash(password)
-    )
-    
-    # إضافة الحقول الاختيارية
-    if "role_key" in payload:
-        setattr(new_staff, 'role_key', payload["role_key"])
-    if "department" in payload:
-        setattr(new_staff, 'department', payload["department"])
-    if "phone" in payload:
-        setattr(new_staff, 'phone', payload["phone"])
-    
-    # تعيين الحالة الافتراضية
-    setattr(new_staff, 'status', 'active')
-    
-    db.add(new_staff)
-    db.commit()
-    db.refresh(new_staff)
-    
-    return {
-        "id": new_staff.id,
-        "name": new_staff.name,
-        "email": new_staff.email,
-        "role_key": getattr(new_staff, 'role_key', None),
-        "department": getattr(new_staff, 'department', None),
-        "phone": getattr(new_staff, 'phone', None),
-        "status": getattr(new_staff, 'status', 'active'),
-        "created_at": getattr(new_staff, 'created_at', None),
-        "message": "تم إنشاء الموظف بنجاح"
-    }
+    try:
+        from .security import get_password_hash
+        
+        new_staff = models.Staff(
+            email=email,
+            name=name,
+            password_hash=get_password_hash(password)
+        )
+        
+        # إضافة الحقول الاختيارية
+        if "role_key" in payload:
+            setattr(new_staff, 'role_key', payload["role_key"])
+        if "department" in payload:
+            setattr(new_staff, 'department', payload["department"])
+        if "phone" in payload:
+            setattr(new_staff, 'phone', payload["phone"])
+        
+        # تعيين الحالة الافتراضية
+        setattr(new_staff, 'status', 'active')
+        
+        db.add(new_staff)
+        db.commit()
+        db.refresh(new_staff)
+        
+        return {
+            "id": new_staff.id,
+            "name": new_staff.name,
+            "email": new_staff.email,
+            "role_key": getattr(new_staff, 'role_key', None),
+            "department": getattr(new_staff, 'department', None),
+            "phone": getattr(new_staff, 'phone', None),
+            "status": getattr(new_staff, 'status', 'active'),
+            "created_at": getattr(new_staff, 'created_at', None),
+            "message": "تم إنشاء الموظف بنجاح"
+        }
+    except Exception as e:
+        db.rollback()
+        print(f"❌ ERROR creating staff: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"خطأ في إنشاء الموظف: {str(e)}")
 
 
 @router.post("/api/staff/status")
