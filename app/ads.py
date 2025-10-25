@@ -474,3 +474,52 @@ def toggle_ad_status(
     )
 
 
+@router.post("/delete_ad")
+def delete_ad(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    حذف الإعلان نهائياً من قاعدة البيانات
+    
+    Body:
+    {
+        "ad_ID": "234333_rert34_rre5334"
+    }
+    
+    يتطلب: Doctor-Secret header
+    """
+    ad_id = payload.get("ad_ID")
+    if not ad_id:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "bad_request", "message": "ad_ID is required"}}
+        )
+    
+    # البحث عن الإعلان
+    ads = db.query(models.Ad).all()
+    
+    for ad in ads:
+        try:
+            data = json.loads(ad.payload_json) if ad.payload_json else {}
+            if data.get("ad_ID") == ad_id:
+                # حذف الإعلان نهائياً
+                db.delete(ad)
+                db.commit()
+                
+                return {
+                    "message": "تم حذف الإعلان بنجاح",
+                    "ad_ID": ad_id,
+                    "deleted": True
+                }
+        except Exception:
+            continue
+    
+    return JSONResponse(
+        status_code=404,
+        content={"error": {"code": "not_found", "message": "Ad not found"}}
+    )
+
+
+
