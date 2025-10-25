@@ -247,8 +247,11 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         current_date = today
         max_days = 30
         
+        print(f"🔍 BOOKING DEBUG today={today}, type={type(today)}")
+        
         for _ in range(max_days):
             date_str = current_date.strftime("%Y-%m-%d")
+            print(f"🔍 BOOKING DEBUG current_date={current_date}, date_str={date_str}")
             
             # التحقق إذا كان اليوم موجوداً
             if date_str in days:
@@ -308,6 +311,8 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     # الآن لدينا final_date و day_obj
     date_key = final_date
     day_obj = days[date_key]
+    
+    print(f"🔍 BOOKING DEBUG final_date={final_date}, date_key={date_key}")
     
     # التحقق من الحقول الأساسية
     patients_list = day_obj.get("patients", [])
@@ -390,8 +395,13 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     day_obj["patients"] = patients_list
     days[date_key] = day_obj
 
+    print(f"🔍 BOOKING DEBUG before save: date_key={date_key}, days.keys()={list(days.keys())[-3:]}")
+
     # حفظ
     bt.days_json = json.dumps(days, ensure_ascii=False)
+    
+    print(f"🔍 BOOKING DEBUG after save: days_json first 300 chars={bt.days_json[:300]}")
+    
     db.add(bt)
     db.commit()
     db.refresh(bt)
