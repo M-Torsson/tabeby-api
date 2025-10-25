@@ -129,3 +129,38 @@ def get_all_patients(
                 updated_at=prof.updated_at,
             ))
     return result
+
+
+@router.get("/patients/stats/count")
+def get_patients_count_stats(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    الحصول على إحصائيات عدد المرضى حسب الحالة
+    
+    Returns:
+        {
+            "total": 200,
+            "active": 180,
+            "inactive": 20
+        }
+    """
+    # العدد الكلي
+    total_count = db.query(models.PatientProfile).count()
+    
+    # عدد المرضى النشطين (is_active = True)
+    active_count = db.query(models.PatientProfile).filter(
+        models.PatientProfile.is_active == True
+    ).count()
+    
+    # عدد المرضى غير النشطين (is_active = False)
+    inactive_count = db.query(models.PatientProfile).filter(
+        models.PatientProfile.is_active == False
+    ).count()
+    
+    return {
+        "total": total_count,
+        "active": active_count,
+        "inactive": inactive_count
+    }
