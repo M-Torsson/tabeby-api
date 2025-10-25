@@ -95,9 +95,9 @@ class RateLimiter:
 
 
 # إنشاء rate limiters مختلفة لمسارات مختلفة
-default_limiter = RateLimiter(requests=100, window=60)    # 100 طلب/دقيقة للمسارات العادية
-booking_limiter = RateLimiter(requests=50, window=60)     # 50 طلب/دقيقة للحجوزات
-auth_limiter = RateLimiter(requests=10, window=60)        # 10 طلب/دقيقة للمصادقة
+default_limiter = RateLimiter(requests=300, window=60)    # 300 طلب/دقيقة للمسارات العادية
+booking_limiter = RateLimiter(requests=200, window=60)    # 200 طلب/دقيقة للحجوزات
+auth_limiter = RateLimiter(requests=30, window=60)        # 30 طلب/دقيقة للمصادقة
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
