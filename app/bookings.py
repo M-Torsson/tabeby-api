@@ -270,15 +270,24 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         arabic_days = {
             0: "الاثنين",   # Monday
             1: "الثلاثاء",  # Tuesday
-            2: "الأربعاء",  # Wednesday (with همزة)
+            2: "الأربعاء",  # Wednesday
             3: "الخميس",   # Thursday
             4: "الجمعة",    # Friday
             5: "السبت",    # Saturday
-            6: "الأحد"     # Sunday (with همزة)
+            6: "الأحد"     # Sunday
         }
         
         # ترتيب الأيام
         day_order = ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"]
+        
+        # دالة لتوحيد الهمزات
+        def normalize_day_name(day_name):
+            """توحيد أسماء الأيام لقبول الهمزات بأشكالها المختلفة"""
+            if not day_name:
+                return day_name
+            # توحيد الهمزات: أ ← ا
+            normalized = day_name.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+            return normalized
         
         for _ in range(max_days):
             date_str = current_date.strftime("%Y-%m-%d")
@@ -290,9 +299,17 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
             # التحقق من أيام العمل
             if clinic_days_from and clinic_days_to and day_name_ar:
                 try:
-                    from_idx = day_order.index(clinic_days_from)
-                    to_idx = day_order.index(clinic_days_to)
-                    current_idx = day_order.index(day_name_ar)
+                    # توحيد أسماء الأيام للمقارنة
+                    norm_from = normalize_day_name(clinic_days_from)
+                    norm_to = normalize_day_name(clinic_days_to)
+                    norm_current = normalize_day_name(day_name_ar)
+                    
+                    # إنشاء day_order بدون همزات للمقارنة
+                    norm_day_order = [normalize_day_name(d) for d in day_order]
+                    
+                    from_idx = norm_day_order.index(norm_from)
+                    to_idx = norm_day_order.index(norm_to)
+                    current_idx = norm_day_order.index(norm_current)
                     
                     # التحقق إذا كان اليوم ضمن نطاق أيام العمل
                     is_working_day = False
