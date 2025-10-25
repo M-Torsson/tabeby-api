@@ -260,6 +260,13 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
             if date_str in days:
                 day_obj = days.get(date_str)
                 if isinstance(day_obj, dict):
+                    # تخطي الأيام المغلقة (عطلات)
+                    day_status = day_obj.get("status", "open")
+                    if day_status == "closed":
+                        print(f"🔍 BOOKING DEBUG skipping {date_str} - status is closed")
+                        current_date += timedelta(days=1)
+                        continue
+                    
                     capacity_total = day_obj.get("capacity_total", 20)
                     capacity_used = day_obj.get("capacity_used", 0)
                     
