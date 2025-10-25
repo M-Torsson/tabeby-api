@@ -364,13 +364,15 @@ def list_doctors(
 @router.get("/doctors/stats/count")
 def get_doctors_count_stats(db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
     """
-    الحصول على إحصائيات عدد الدكاترة حسب الحالة
+    الحصول على إحصائيات عدد الدكاترة حسب الحالة مع تفاصيل كل دكتور
     
     Returns:
         {
             "total": 150,
             "active": 120,
-            "inactive": 30
+            "inactive": 30,
+            "active_list": [...],
+            "inactive_list": [...]
         }
     """
     # محاولة الحصول من الكاش
@@ -379,21 +381,32 @@ def get_doctors_count_stats(db: Session = Depends(get_db), _: None = Depends(req
     if cached_result is not None:
         return cached_result
     
-    # العدد الكلي
-    total_count = db.query(models.Doctor).count()
+    # جلب جميع الدكاترة
+    all_doctors = db.query(models.Doctor).all()
     
-    # عدد الدكاترة النشطين (status = 'active')
-    active_count = db.query(models.Doctor).filter(
-        models.Doctor.status == 'active'
-    ).count()
+    active_list = []
+    inactive_list = []
     
-    # عدد الدكاترة غير النشطين (status != 'active')
-    inactive_count = total_count - active_count
+    for doc in all_doctors:
+        doctor_data = {
+            "id": doc.id,
+            "name": doc.name,
+            "email": doc.email,
+            "phone": doc.phone,
+            "created_at": doc.created_at.isoformat() if doc.created_at else None
+        }
+        
+        if doc.status == 'active':
+            active_list.append(doctor_data)
+        else:
+            inactive_list.append(doctor_data)
     
     result = {
-        "total": total_count,
-        "active": active_count,
-        "inactive": inactive_count
+        "total": len(all_doctors),
+        "active": len(active_list),
+        "inactive": len(inactive_list),
+        "active_list": active_list,
+        "inactive_list": inactive_list
     }
     
     # حفظ في الكاش لمدة 5 دقائق

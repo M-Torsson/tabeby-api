@@ -137,30 +137,41 @@ def get_patients_count_stats(
     _: None = Depends(require_profile_secret)
 ):
     """
-    الحصول على إحصائيات عدد المرضى حسب الحالة
+    الحصول على إحصائيات عدد المرضى حسب الحالة مع تفاصيل كل مريض
     
     Returns:
         {
             "total": 200,
             "active": 180,
-            "inactive": 20
+            "inactive": 20,
+            "active_list": [...],
+            "inactive_list": [...]
         }
     """
-    # العدد الكلي
-    total_count = db.query(models.PatientProfile).count()
+    # جلب جميع المرضى
+    all_patients = db.query(models.PatientProfile).all()
     
-    # عدد المرضى النشطين (is_active = True)
-    active_count = db.query(models.PatientProfile).filter(
-        models.PatientProfile.is_active == True
-    ).count()
+    active_list = []
+    inactive_list = []
     
-    # عدد المرضى غير النشطين (is_active = False)
-    inactive_count = db.query(models.PatientProfile).filter(
-        models.PatientProfile.is_active == False
-    ).count()
+    for prof in all_patients:
+        patient_data = {
+            "id": prof.id,
+            "name": prof.patient_name,
+            "phone": prof.phone_number,
+            "created_at": prof.created_at.isoformat() if prof.created_at else None
+        }
+        
+        is_active = getattr(prof, 'is_active', True)
+        if is_active:
+            active_list.append(patient_data)
+        else:
+            inactive_list.append(patient_data)
     
     return {
-        "total": total_count,
-        "active": active_count,
-        "inactive": inactive_count
+        "total": len(all_patients),
+        "active": len(active_list),
+        "inactive": len(inactive_list),
+        "active_list": active_list,
+        "inactive_list": inactive_list
     }
