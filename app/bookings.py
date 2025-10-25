@@ -244,11 +244,13 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     else:  # patient_app
         # نبدأ من اليوم الحالي بتوقيت العراق
         from .timezone_utils import now_iraq
-        today_iraq = now_iraq().date()
+        now_dt = now_iraq()
+        today_iraq = now_dt.date()
         current_date = today_iraq
         max_days = 30
         
-        print(f"🔍 BOOKING DEBUG today_iraq={today_iraq}, type={type(today_iraq)}")
+        print(f"🔍 BOOKING DEBUG now_iraq()={now_dt}, today_iraq={today_iraq}, hour={now_dt.hour}")
+        print(f"🔍 BOOKING DEBUG UTC now={dt.now(tz.utc)}")
         
         for _ in range(max_days):
             date_str = current_date.strftime("%Y-%m-%d")
