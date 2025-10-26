@@ -18,6 +18,7 @@ from .security import (
     verify_password,
 )
 from .mailer import send_password_reset
+from .doctors import require_profile_secret
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -134,114 +135,63 @@ def auth_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="نوع الرمز غير صحيح")
 
 
-@router.post("/admin/register", response_model=schemas.AdminOut, status_code=201)
-async def register_admin(request: Request, db: Session = Depends(get_db)):
-    # دعم JSON أو form/multipart
-    content_type = request.headers.get("content-type", "").lower()
-    name = email = password = None
-    if content_type.startswith("application/json"):
-        data = await request.json()
-        name = (data.get("name") or data.get("fullName") or "").strip()
-        email = (data.get("email") or "").strip().lower()
-        password = data.get("password")
-    else:
-        form = await request.form()
-        name = (form.get("name") or form.get("fullName") or "").strip()
-        email = (form.get("email") or "").strip().lower()
-        password = form.get("password")
-
-    if not name or not email or not password:
-        raise HTTPException(status_code=400, detail="يجب إرسال name, email, password")
-
-    # تحقق بشكل غير حساس لحالة الأحرف لتجنّب تكرار بنفس البريد بحروف كبيرة/صغيرة
-    exists = (
-        db.query(models.Admin)
-        .options(load_only(models.Admin.id, models.Admin.email))
-        .filter(func.lower(models.Admin.email) == email)
-        .first()
-    )
-    if exists:
-        raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
-
-    # حاول الإدراج عبر ORM، وإن فشل بسبب أعمدة غير موجودة (مخطط قديم) فسنستخدم إدراجاً ديناميكياً حسب الأعمدة المتاحة
-    admin = models.Admin(
-        name=name,
-        email=email,
-        password_hash=get_password_hash(password),
-        is_active=True,
-        is_superuser=False,
-    )
+@router.post("/admin/register", status_code=201)
+async def register_admin(
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    تسجيل أدمن جديد - بسيط وسهل
+    
+    Body:
+    {
+        "email": "admin@example.com",
+        "password": "your_password"
+    }
+    
+    Headers:
+    Doctor-Secret: f8d0a6b49c3e27e58a1f4c7d92e6b38c0d54f7a8b3c927f1a02e6d84c5b71f93
+    """
     try:
+        data = await request.json()
+        email = data.get("email", "").strip().lower()
+        password = data.get("password", "")
+        
+        if not email or not password:
+            raise HTTPException(status_code=400, detail="يجب إرسال email و password")
+        
+        # التحقق من أن البريد غير مستخدم
+        exists = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
+        
+        # إنشاء الأدمن
+        admin = models.Admin(
+            name=email.split("@")[0],  # استخدام اسم من البريد
+            email=email,
+            password_hash=get_password_hash(password),
+            is_active=True,
+            is_superuser=False,
+        )
+        
         db.add(admin)
         db.commit()
-        # ابنِ الاستجابة من حقول معروفة لتجنّب تحميل أعمدة غير موجودة
-        return schemas.AdminOut.model_validate({
+        db.refresh(admin)
+        
+        return {
+            "message": "تم إنشاء الحساب بنجاح",
             "id": admin.id,
-            "name": admin.name,
             "email": admin.email,
-            "is_active": admin.is_active,
-            "is_superuser": admin.is_superuser,
-            "two_factor_enabled": False,
-        })
+            "name": admin.name
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
-        print("[WARN] admins insert via ORM failed, trying dynamic insert:", e)
-        try:
-            cols_res = db.execute(
-                text(
-                    """
-                    SELECT column_name, is_nullable, column_default
-                    FROM information_schema.columns
-                    WHERE table_name = 'admins' AND table_schema = 'public'
-                    """
-                )
-            )
-            cols = [(r[0], (r[1] or '').upper(), r[2]) for r in cols_res]
-            available_cols = {c for c, _, _ in cols}
-            must_have = {c for c, nul, d in cols if nul == 'NO' and d is None}
-            now = datetime.utcnow()
-            base_values = {
-                "name": name,
-                "email": email,
-                "password_hash": get_password_hash(password),
-                "is_active": True,
-                "is_superuser": False,
-                "created_at": now,
-                # الأعمدة الاختيارية الجديدة، إن وُجدت سنمرر قيمها الافتراضية
-                # أزلنا أعمدة التفضيلات / 2FA إن وُجدت سابقاً
-            }
-            use_keys = [k for k in base_values.keys() if k in available_cols]
-            missing_required = [k for k in must_have if k not in use_keys and k not in {"id"}]
-            if missing_required:
-                # في جداول قديمة، عادة لا توجد أعمدة إلزامية إضافية
-                raise RuntimeError(f"admins missing required cols without defaults: {missing_required}")
-            columns_csv = ", ".join(use_keys)
-            placeholders = ", ".join(f":{k}" for k in use_keys)
-            sql = f"INSERT INTO admins ({columns_csv}) VALUES ({placeholders})"
-            params = {k: base_values[k] for k in use_keys}
-            db.execute(text(sql), params)
-            db.commit()
-            # اجلب السجل الذي أُدرج للتو بأعمدة آمنة
-            admin_row = (
-                db.query(models.Admin)
-                .options(load_only(models.Admin.id, models.Admin.name, models.Admin.email, models.Admin.is_active, models.Admin.is_superuser))
-                .filter(func.lower(models.Admin.email) == email)
-                .first()
-            )
-            if not admin_row:
-                raise HTTPException(status_code=500, detail="database_error")
-            return schemas.AdminOut.model_validate({
-                "id": admin_row.id,
-                "name": admin_row.name,
-                "email": admin_row.email,
-                "is_active": admin_row.is_active,
-                "is_superuser": admin_row.is_superuser,
-                "two_factor_enabled": False,
-            })
-        except Exception as e2:
-            db.rollback()
-            print("[ERROR] dynamic insert into admins failed:", e2)
-            raise HTTPException(status_code=500, detail="database_error")
+        print(f"[ERROR] register_admin failed: {e}")
+        raise HTTPException(status_code=500, detail="حدث خطأ في إنشاء الحساب")
 
 
 @router.post("/login")
