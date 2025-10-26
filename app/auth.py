@@ -19,6 +19,7 @@ from .security import (
 )
 from .mailer import send_password_reset
 from .dependencies import require_profile_secret
+import bcrypt
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -173,10 +174,14 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
             if not name:
                 raise HTTPException(status_code=400, detail="يجب إرسال name عند التسجيل")
             
+            # تشفير كلمة المرور مباشرة مع bcrypt
+            password_bytes = password.encode('utf-8')[:72]
+            hashed = bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode('utf-8')
+            
             admin = models.Admin(
                 name=name,
                 email=email,
-                password_hash=get_password_hash(password),
+                password_hash=hashed,
                 is_active=True,
                 is_superuser=False,
             )
@@ -185,8 +190,9 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
             db.refresh(admin)
             message = "تم إنشاء الحساب بنجاح"
         else:
-            # تحقق من كلمة المرور
-            if not verify_password(password, admin.password_hash):
+            # تحقق من كلمة المرور مباشرة مع bcrypt
+            password_bytes = password.encode('utf-8')[:72]
+            if not bcrypt.checkpw(password_bytes, admin.password_hash.encode('utf-8')):
                 raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
             
             if not getattr(admin, "is_active", True):
