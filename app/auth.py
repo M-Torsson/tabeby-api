@@ -139,14 +139,13 @@ def auth_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
 @router.post("/admin/auth")
 async def admin_auth(request: Request, db: Session = Depends(get_db)):
     """
-    تسجيل أو دخول أدمن - فقط بـ Doctor-Secret
+    تسجيل دخول أدمن فقط - لا يسمح بالتسجيل
     
     Headers:
     Doctor-Secret: f8d0a6b49c3e27e58a1f4c7d92e6b38c0d54f7a8b3c927f1a02e6d84c5b71f93
     
     Body:
     {
-        "name": "مثنى ترسن",
         "email": "admin@example.com",
         "password": "your_password"
     }
@@ -159,7 +158,6 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
     
     try:
         data = await request.json()
-        name = data.get("name", "").strip()
         email = data.get("email", "").strip().lower()
         password = data.get("password", "")[:72]  # تقليم إلى 72 حرف
         
@@ -169,42 +167,23 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
         # البحث عن الأدمن
         admin = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
         
-        # إذا لم يوجد، أنشئ حساب جديد
+        # إذا لم يوجد، ارفض
         if not admin:
-            if not name:
-                raise HTTPException(status_code=400, detail="يجب إرسال name عند التسجيل")
-            
-            # تشفير كلمة المرور مباشرة مع bcrypt
-            password_bytes = password.encode('utf-8')[:72]
-            hashed = bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode('utf-8')
-            
-            admin = models.Admin(
-                name=name,
-                email=email,
-                password_hash=hashed,
-                is_active=True,
-                is_superuser=False,
-            )
-            db.add(admin)
-            db.commit()
-            db.refresh(admin)
-            message = "تم إنشاء الحساب بنجاح"
-        else:
-            # تحقق من كلمة المرور مباشرة مع bcrypt
-            password_bytes = password.encode('utf-8')[:72]
-            if not bcrypt.checkpw(password_bytes, admin.password_hash.encode('utf-8')):
-                raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
-            
-            if not getattr(admin, "is_active", True):
-                raise HTTPException(status_code=401, detail="الحساب غير مفعل")
-            
-            message = "تم تسجيل الدخول بنجاح"
+            raise HTTPException(status_code=401, detail="البريد الإلكتروني غير موجود")
+        
+        # تحقق من كلمة المرور مباشرة مع bcrypt
+        password_bytes = password.encode('utf-8')[:72]
+        if not bcrypt.checkpw(password_bytes, admin.password_hash.encode('utf-8')):
+            raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
+        
+        if not getattr(admin, "is_active", True):
+            raise HTTPException(status_code=401, detail="الحساب غير مفعل")
         
         # إنشاء access token
         access_data = create_access_token(subject=str(admin.id))
         
         return {
-            "message": message,
+            "message": "تم تسجيل الدخول بنجاح",
             "accessToken": access_data["token"],
             "tokenType": "bearer",
             "user": {
@@ -222,6 +201,68 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/create", status_code=201)
+def create_admin(
+    request: dict,
+    db: Session = Depends(get_db),
+    current_admin: models.Admin = Depends(get_current_admin)
+):
+    """
+    إنشاء أدمن جديد من داخل Dashboard
+    يتطلب: Authorization Bearer Token
+    
+    Body:
+    {
+        "name": "اسم الأدمن",
+        "email": "admin@example.com",
+        "password": "password123"
+    }
+    """
+    name = request.get("name", "").strip()
+    email = request.get("email", "").strip().lower()
+    password = request.get("password", "")[:72]
+    
+    if not name or not email or not password:
+        raise HTTPException(status_code=400, detail="يجب إرسال name و email و password")
+    
+    # التحقق من أن البريد غير مستخدم
+    exists = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
+    if exists:
+        raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
+    
+    try:
+        # تشفير كلمة المرور
+        password_bytes = password.encode('utf-8')[:72]
+        hashed = bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode('utf-8')
+        
+        # إنشاء الأدمن
+        admin = models.Admin(
+            name=name,
+            email=email,
+            password_hash=hashed,
+            is_active=True,
+            is_superuser=False,
+        )
+        
+        db.add(admin)
+        db.commit()
+        db.refresh(admin)
+        
+        return {
+            "message": "تم إنشاء الأدمن بنجاح",
+            "admin": {
+                "id": admin.id,
+                "name": admin.name,
+                "email": admin.email
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"[ERROR] create_admin failed: {e}")
+        raise HTTPException(status_code=500, detail="حدث خطأ في إنشاء الأدمن")
 
 
 @router.post("/logout")
