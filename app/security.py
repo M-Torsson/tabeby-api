@@ -24,7 +24,11 @@ try:
 except (ValueError, TypeError):
     REFRESH_TOKEN_EXPIRE_DAYS = 7
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__truncate_error=False  # لا ترمي خطأ عند كلمات المرور الطويلة
+)
 
 
 def get_password_hash(password: str) -> str:
