@@ -28,16 +28,15 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def get_password_hash(password: str) -> str:
-    # تقليم كلمة المرور إلى 72 بايت لـ bcrypt
-    password_bytes = password.encode('utf-8')[:72]
-    password_truncated = password_bytes.decode('utf-8', errors='ignore')
-    return pwd_context.hash(password_truncated)
+    # تقليم كلمة المرور إلى 72 حرف (أكثر من كافي لـ 72 بايت)
+    password = password[:72] if len(password) > 72 else password
+    return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # تقليم كلمة المرور إلى 72 بايت لـ bcrypt
-    password_bytes = plain_password.encode('utf-8')[:72]
-    password_truncated = password_bytes.decode('utf-8', errors='ignore')
+    # تقليم كلمة المرور إلى 72 حرف
+    plain_password = plain_password[:72] if len(plain_password) > 72 else plain_password
+    return pwd_context.verify(plain_password, hashed_password)
     return pwd_context.verify(password_truncated, hashed_password)
 
 
