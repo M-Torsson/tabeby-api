@@ -135,13 +135,13 @@ def auth_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="نوع الرمز غير صحيح")
 
 
-@router.post("/admin/register", status_code=201)
-async def register_admin(
-    request: Request,
-    db: Session = Depends(get_db)
-):
+@router.post("/admin/auth")
+async def admin_auth(request: Request, db: Session = Depends(get_db)):
     """
-    تسجيل أدمن جديد - بسيط وسهل
+    تسجيل أو دخول أدمن - فقط بـ Doctor-Secret
+    
+    Headers:
+    Doctor-Secret: f8d0a6b49c3e27e58a1f4c7d92e6b38c0d54f7a8b3c927f1a02e6d84c5b71f93
     
     Body:
     {
@@ -149,65 +149,16 @@ async def register_admin(
         "password": "your_password"
     }
     """
-    try:
-        data = await request.json()
-        email = data.get("email", "").strip().lower()
-        password = data.get("password", "")
-        
-        if not email or not password:
-            raise HTTPException(status_code=400, detail="يجب إرسال email و password")
-        
-        # التحقق من أن البريد غير مستخدم
-        exists = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
-        if exists:
-            raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
-        
-        # إنشاء الأدمن
-        admin = models.Admin(
-            name=email.split("@")[0],  # استخدام اسم من البريد
-            email=email,
-            password_hash=get_password_hash(password),
-            is_active=True,
-            is_superuser=False,
-        )
-        
-        db.add(admin)
-        db.commit()
-        db.refresh(admin)
-        
-        return {
-            "message": "تم إنشاء الحساب بنجاح",
-            "id": admin.id,
-            "email": admin.email,
-            "name": admin.name
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        print(f"[ERROR] register_admin failed: {e}")
-        raise HTTPException(status_code=500, detail="حدث خطأ في إنشاء الحساب")
-
-
-@router.post("/login")
-async def login(
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    """
-    تسجيل الدخول - بسيط وسهل
+    # التحقق من Doctor-Secret
+    secret = os.getenv("DOCTOR_PROFILE_SECRET", "")
+    provided = request.headers.get("Doctor-Secret")
+    if not provided or provided != secret:
+        raise HTTPException(status_code=403, detail="forbidden")
     
-    Body:
-    {
-        "email": "admin@example.com",
-        "password": "your_password"
-    }
-    """
     try:
         data = await request.json()
         email = data.get("email", "").strip().lower()
-        password = data.get("password", "")
+        password = data.get("password", "")[:72]  # تقليم إلى 72 حرف
         
         if not email or not password:
             raise HTTPException(status_code=400, detail="يجب إرسال email و password")
@@ -215,17 +166,34 @@ async def login(
         # البحث عن الأدمن
         admin = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
         
-        if not admin or not verify_password(password, admin.password_hash):
-            raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
+        # إذا لم يوجد، أنشئ حساب جديد
+        if not admin:
+            admin = models.Admin(
+                name=email.split("@")[0],
+                email=email,
+                password_hash=pwd_context.hash(password),
+                is_active=True,
+                is_superuser=False,
+            )
+            db.add(admin)
+            db.commit()
+            db.refresh(admin)
+            message = "تم إنشاء الحساب بنجاح"
+        else:
+            # تحقق من كلمة المرور
+            if not pwd_context.verify(password, admin.password_hash):
+                raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
+            
+            if not getattr(admin, "is_active", True):
+                raise HTTPException(status_code=401, detail="الحساب غير مفعل")
+            
+            message = "تم تسجيل الدخول بنجاح"
         
-        if not getattr(admin, "is_active", True):
-            raise HTTPException(status_code=401, detail="الحساب غير مفعل")
-        
-        # إنشاء access token فقط (بدون refresh token)
+        # إنشاء access token
         access_data = create_access_token(subject=str(admin.id))
         
         return {
-            "message": "تم تسجيل الدخول بنجاح",
+            "message": message,
             "accessToken": access_data["token"],
             "tokenType": "bearer",
             "user": {
@@ -238,7 +206,8 @@ async def login(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] login failed: {e}")
+        db.rollback()
+        print(f"[ERROR] admin_auth failed: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
