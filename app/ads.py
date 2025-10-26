@@ -419,9 +419,11 @@ def get_all_clinic_ads(
                 if doctor:
                     doctor_name = doctor.name
             
-            # إضافة اسم الدكتور ورقم الهاتف للبيانات المرجعة
+            # إضافة اسم الدكتور والحقول المهمة للبيانات المرجعة
             data["doctor_name"] = doctor_name
             data["ad_phonenumber"] = data.get("ad_phonenumber", "")
+            data["ad_subtitle"] = data.get("ad_subtitle", "")
+            data["ad_discount"] = data.get("ad_discount", "")
             
             result.append(data)
         except Exception:
@@ -574,6 +576,7 @@ def update_ad(
     allowed_fields = [
         "created_date",
         "clinic_name",
+        "ad_subtitle",  # إضافة Subtitle
         "ad_image_url",
         "ad_status",
         "ad_phone",
