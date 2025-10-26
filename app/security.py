@@ -12,8 +12,17 @@ load_dotenv(override=False)
 # إعدادات الأمان من المتغيرات البيئية
 SECRET_KEY = os.getenv("SECRET_KEY") or "dev-secret-change-me"
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+
+# معالجة آمنة لقيم الوقت
+try:
+    ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
+except (ValueError, TypeError):
+    ACCESS_TOKEN_EXPIRE_MINUTES = 15
+
+try:
+    REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+except (ValueError, TypeError):
+    REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
