@@ -16,7 +16,6 @@ from .security import (
     decode_token,
     get_password_hash,
     verify_password,
-    pwd_context,
 )
 from .mailer import send_password_reset
 from .dependencies import require_profile_secret
@@ -177,7 +176,7 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
             admin = models.Admin(
                 name=name,
                 email=email,
-                password_hash=pwd_context.hash(password),
+                password_hash=get_password_hash(password),
                 is_active=True,
                 is_superuser=False,
             )
@@ -187,7 +186,7 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
             message = "تم إنشاء الحساب بنجاح"
         else:
             # تحقق من كلمة المرور
-            if not pwd_context.verify(password, admin.password_hash):
+            if not verify_password(password, admin.password_hash):
                 raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
             
             if not getattr(admin, "is_active", True):
