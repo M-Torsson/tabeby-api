@@ -138,8 +138,7 @@ def auth_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
 @router.post("/admin/register", status_code=201)
 async def register_admin(
     request: Request,
-    db: Session = Depends(get_db),
-    _: None = Depends(require_profile_secret)
+    db: Session = Depends(get_db)
 ):
     """
     تسجيل أدمن جديد - بسيط وسهل
@@ -149,9 +148,6 @@ async def register_admin(
         "email": "admin@example.com",
         "password": "your_password"
     }
-    
-    Headers:
-    Doctor-Secret: f8d0a6b49c3e27e58a1f4c7d92e6b38c0d54f7a8b3c927f1a02e6d84c5b71f93
     """
     try:
         data = await request.json()
@@ -197,8 +193,7 @@ async def register_admin(
 @router.post("/login")
 async def login(
     request: Request,
-    db: Session = Depends(get_db),
-    _: None = Depends(require_profile_secret)
+    db: Session = Depends(get_db)
 ):
     """
     تسجيل الدخول - بسيط وسهل
@@ -208,9 +203,6 @@ async def login(
         "email": "admin@example.com",
         "password": "your_password"
     }
-    
-    Headers:
-    Doctor-Secret: f8d0a6b49c3e27e58a1f4c7d92e6b38c0d54f7a8b3c927f1a02e6d84c5b71f93
     """
     try:
         data = await request.json()
