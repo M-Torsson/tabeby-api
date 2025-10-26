@@ -166,15 +166,11 @@ async def register_admin(
         if exists:
             raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
         
-        # تقليم كلمة المرور إلى 72 بايت لـ bcrypt
-        password_bytes = password.encode('utf-8')[:72]
-        password_truncated = password_bytes.decode('utf-8', errors='ignore')
-        
         # إنشاء الأدمن
         admin = models.Admin(
             name=email.split("@")[0],  # استخدام اسم من البريد
             email=email,
-            password_hash=get_password_hash(password_truncated),
+            password_hash=get_password_hash(password),
             is_active=True,
             is_superuser=False,
         )
@@ -224,14 +220,10 @@ async def login(
         if not email or not password:
             raise HTTPException(status_code=400, detail="يجب إرسال email و password")
         
-        # تقليم كلمة المرور إلى 72 بايت لـ bcrypt
-        password_bytes = password.encode('utf-8')[:72]
-        password_truncated = password_bytes.decode('utf-8', errors='ignore')
-        
         # البحث عن الأدمن
         admin = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
         
-        if not admin or not verify_password(password_truncated, admin.password_hash):
+        if not admin or not verify_password(password, admin.password_hash):
             raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
         
         if not getattr(admin, "is_active", True):
