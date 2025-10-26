@@ -419,8 +419,9 @@ def get_all_clinic_ads(
                 if doctor:
                     doctor_name = doctor.name
             
-            # إضافة اسم الدكتور للبيانات
+            # إضافة اسم الدكتور ورقم الهاتف للبيانات المرجعة
             data["doctor_name"] = doctor_name
+            data["ad_phonenumber"] = data.get("ad_phonenumber", "")
             
             result.append(data)
         except Exception:
