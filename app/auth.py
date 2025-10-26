@@ -18,7 +18,7 @@ from .security import (
     verify_password,
 )
 from .mailer import send_password_reset
-from .doctors import require_profile_secret
+from .dependencies import require_profile_secret
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -195,109 +195,59 @@ async def register_admin(
 
 
 @router.post("/login")
-async def login(request: Request, db: Session = Depends(get_db)):
-    # دعم JSON أو form: إذا كان Content-Type JSON نقرأ الحقول email/password، وإلا نقرأ form username/password
-    email: Optional[str] = None
-    password: Optional[str] = None
-
-    content_type = request.headers.get("content-type", "").lower()
-    if content_type.startswith("application/json"):
-        data = await request.json()
-        email = (data.get("email") or data.get("username") or "").strip().lower()
-        password = data.get("password")
-    else:
-        form = await request.form()
-        # OAuth2 form uses 'username'
-        email = (form.get("username") or form.get("email") or "").strip().lower()
-        password = form.get("password")
-
-    if not email or not password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="يجب إرسال البريد الإلكتروني وكلمة المرور")
-
-    admin: Optional[models.Admin] = (
-        db.query(models.Admin)
-        .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.password_hash, models.Admin.is_active))
-        .filter(func.lower(models.Admin.email) == email)
-        .first()
-    )
-    if not admin or not verify_password(password, admin.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="بيانات الدخول غير صحيحة")
-
-    # خزّن الحقول قبل أي commit (حتى لا ت expire وتُحمل من قاعدة البيانات بأعمدة ناقصة)
-    admin_id_val = admin.id
-    admin_name_val = admin.name
-    admin_email_val = admin.email
-
-    # أنشئ رمز التحديث أولاً وسجّل بيانات الجلسة
-    refresh = create_refresh_token(subject=str(admin_id_val))
-    # ثبّت تاريخ الانتهاء ليكون naive (بدون tzinfo) لتفادي مشاكل Postgres
-    exp_val = refresh["exp"]
-    if isinstance(exp_val, datetime) and exp_val.tzinfo is not None:
-        exp_val = exp_val.replace(tzinfo=None)
-    ua = request.headers.get("user-agent")
-    ip = request.client.host if request.client else None
-    # حاول إدراج سجل الجلسة مع البيانات الكاملة، وإن فشل بسبب اختلاف المخطط نفّذ إدراجاً بسيطاً
-    try:
-        rt = models.RefreshToken(
-            jti=refresh["jti"],
-            admin_id=admin_id_val,
-            expires_at=exp_val,
-            revoked=False,
-            created_at=datetime.utcnow(),
-        )
-        db.add(rt)
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        print("[WARN] refresh_tokens insert failed, falling back to minimal insert:", e)
-        try:
-            cols_res = db.execute(
-                text(
-                    """
-                    SELECT column_name, is_nullable, column_default
-                    FROM information_schema.columns
-                    WHERE table_name = 'refresh_tokens' AND table_schema = 'public'
-                    """
-                )
-            )
-            cols = [(r[0], (r[1] or '').upper(), r[2]) for r in cols_res]
-            available_cols = {c for c, _, _ in cols}
-            must_have = {c for c, nul, d in cols if nul == 'NO' and d is None}
-            now = datetime.utcnow()
-            base_values = {
-                "jti": refresh["jti"],
-                "admin_id": admin_id_val,
-                "expires_at": exp_val,
-                "revoked": False,
-                "created_at": now,
-            }
-            use_keys = [k for k in base_values.keys() if k in available_cols]
-            missing_required = [k for k in must_have if k not in use_keys and k not in {"id"}]
-            if missing_required:
-                raise RuntimeError(f"refresh_tokens missing required cols without defaults: {missing_required}")
-            columns_csv = ", ".join(use_keys)
-            placeholders = ", ".join(f":{k}" for k in use_keys)
-            sql = f"INSERT INTO refresh_tokens ({columns_csv}) VALUES ({placeholders})"
-            params = {k: base_values[k] for k in use_keys}
-            db.execute(text(sql), params)
-            db.commit()
-        except Exception as e2:
-            db.rollback()
-            print("[ERROR] minimal/dynamic refresh_tokens insert failed:", e2)
-            raise HTTPException(status_code=500, detail="database_error")
-
-    # اجعل رمز الوصول يحمل sid (يشير إلى جلسة الريفريش)
-    access = create_access_token(subject=str(admin_id_val), extra={"sid": refresh["jti"]})
-
-    # أعد الاستجابة داخل data كما طلب الفرونت، بصيغة camelCase
-    return {
-        "data": {
-            "accessToken": access["token"],
-            "refreshToken": refresh["token"],
-            "tokenType": "bearer",
-            "user": {"id": admin_id_val, "name": admin_name_val, "email": admin_email_val},
-        }
+async def login(
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    تسجيل الدخول - بسيط وسهل
+    
+    Body:
+    {
+        "email": "admin@example.com",
+        "password": "your_password"
     }
+    
+    Headers:
+    Doctor-Secret: f8d0a6b49c3e27e58a1f4c7d92e6b38c0d54f7a8b3c927f1a02e6d84c5b71f93
+    """
+    try:
+        data = await request.json()
+        email = data.get("email", "").strip().lower()
+        password = data.get("password", "")
+        
+        if not email or not password:
+            raise HTTPException(status_code=400, detail="يجب إرسال email و password")
+        
+        # البحث عن الأدمن
+        admin = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
+        
+        if not admin or not verify_password(password, admin.password_hash):
+            raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
+        
+        if not getattr(admin, "is_active", True):
+            raise HTTPException(status_code=401, detail="الحساب غير مفعل")
+        
+        # إنشاء access token فقط (بدون refresh token)
+        access = create_access_token(subject=str(admin.id))
+        
+        return {
+            "message": "تم تسجيل الدخول بنجاح",
+            "accessToken": access["token"],
+            "tokenType": "bearer",
+            "user": {
+                "id": admin.id,
+                "name": admin.name,
+                "email": admin.email
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] login failed: {e}")
+        raise HTTPException(status_code=500, detail="حدث خطأ في تسجيل الدخول")
 
 
 @router.post("/logout")

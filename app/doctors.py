@@ -13,7 +13,7 @@ from sqlalchemy import func
 from .database import SessionLocal
 from . import models
 from . import schemas
-from .auth import get_current_admin  # kept for potential reuse, but not required for public endpoints
+from .dependencies import require_profile_secret
 from .cache import cache
 
 router = APIRouter(prefix="/api", tags=["Doctors"])
@@ -29,18 +29,6 @@ def get_db():
 
 def error(code: str, message: str, status: int = 400):
     return JSONResponse(status_code=status, content={"error": {"code": code, "message": message}})
-
-
-def require_profile_secret(request: Request):
-    """Require a static secret for accessing doctor profile.
-    - Set DOCTOR_PROFILE_SECRET in environment.
-    - Client must send Doctor-Secret header with the exact same value.
-    If header is missing or does not match, return 403.
-    """
-    secret = os.getenv("DOCTOR_PROFILE_SECRET") or ""
-    provided = request.headers.get("Doctor-Secret")
-    if not provided or provided != secret:
-        raise HTTPException(status_code=403, detail="forbidden")
 
 
 def _to_ascii_digits(s: str | None) -> Optional[str]:

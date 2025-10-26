@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from .database import SessionLocal
 from . import models
-from .doctors import require_profile_secret
+from .dependencies import require_profile_secret
 
 router = APIRouter(prefix="/api", tags=["Ads"])
 
