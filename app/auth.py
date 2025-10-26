@@ -230,11 +230,11 @@ async def login(
             raise HTTPException(status_code=401, detail="الحساب غير مفعل")
         
         # إنشاء access token فقط (بدون refresh token)
-        access = create_access_token(subject=str(admin.id))
+        access_data = create_access_token(subject=str(admin.id))
         
         return {
             "message": "تم تسجيل الدخول بنجاح",
-            "accessToken": access["token"],
+            "accessToken": access_data["token"],
             "tokenType": "bearer",
             "user": {
                 "id": admin.id,
@@ -247,7 +247,9 @@ async def login(
         raise
     except Exception as e:
         print(f"[ERROR] login failed: {e}")
-        raise HTTPException(status_code=500, detail="حدث خطأ في تسجيل الدخول")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/logout")
