@@ -16,6 +16,7 @@ from .security import (
     decode_token,
     get_password_hash,
     verify_password,
+    pwd_context,
 )
 from .mailer import send_password_reset
 from .dependencies import require_profile_secret
@@ -145,6 +146,7 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
     
     Body:
     {
+        "name": "مثنى ترسن",
         "email": "admin@example.com",
         "password": "your_password"
     }
@@ -157,6 +159,7 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
     
     try:
         data = await request.json()
+        name = data.get("name", "").strip()
         email = data.get("email", "").strip().lower()
         password = data.get("password", "")[:72]  # تقليم إلى 72 حرف
         
@@ -168,8 +171,11 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
         
         # إذا لم يوجد، أنشئ حساب جديد
         if not admin:
+            if not name:
+                raise HTTPException(status_code=400, detail="يجب إرسال name عند التسجيل")
+            
             admin = models.Admin(
-                name=email.split("@")[0],
+                name=name,
                 email=email,
                 password_hash=pwd_context.hash(password),
                 is_active=True,
