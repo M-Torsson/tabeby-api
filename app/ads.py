@@ -248,9 +248,11 @@ async def create_clinic_ad(
     ad_data = {
         "ad_ID": ad_id,
         "created_date": created_date_str,
+        "request_date": body.get("request_date", ""),
         "clinic_name": body.get("clinic_name"),
         "ad_subtitle": body.get("ad_subtitle", ""),
         "ad_description": body.get("ad_description", ""),
+        "ad_address": body.get("ad_address", ""),
         "ad_phonenumber": phone,
         "ad_state": body.get("ad_state"),
         "ad_discount": discount,
@@ -575,17 +577,19 @@ def update_ad(
     # الحقول المسموح بتعديلها
     allowed_fields = [
         "created_date",
+        "request_date",
         "clinic_name",
-        "ad_subtitle",  # إضافة Subtitle
+        "ad_subtitle",
         "ad_image_url",
         "ad_status",
         "ad_phone",
-        "ad_phonenumber",  # للتوافق مع النسخة القديمة
+        "ad_phonenumber",
         "ad_description",
+        "ad_address",
         "ad_state",
         "ad_price",
         "discount_percentage",
-        "ad_discount",  # للتوافق مع النسخة القديمة
+        "ad_discount",
         "clinic_address",
         "ad_location"
     ]
