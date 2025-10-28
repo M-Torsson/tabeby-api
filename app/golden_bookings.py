@@ -749,6 +749,81 @@ def edit_patient_gold_booking(
     )
 
 
+@router.post("/verify_golden_code", response_model=schemas.VerifyGoldenCodeResponse)
+def verify_golden_code(
+    payload: schemas.VerifyGoldenCodeRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """التحقق من كود Golden Book المكون من 4 أرقام وإرجاع بيانات المريض.
+    
+    يستقبل:
+    - clinic_id: معرف العيادة
+    - code: الكود المكون من 4 أرقام
+    - date: (اختياري) التاريخ بصيغة YYYY-MM-DD - إذا لم يُرسل نبحث في كل التواريخ
+    
+    يرجع:
+    - بيانات المريض إذا وُجد الكود
+    - رسالة خطأ إذا لم يُوجد
+    """
+    # البحث عن جدول Golden Book
+    gt = db.query(models.GoldenBookingTable).filter(
+        models.GoldenBookingTable.clinic_id == payload.clinic_id
+    ).first()
+    
+    if not gt:
+        return schemas.VerifyGoldenCodeResponse(
+            status="error",
+            message="لا يوجد جدول Golden لهذه العيادة"
+        )
+    
+    try:
+        days = json.loads(gt.days_json) if gt.days_json else {}
+    except Exception:
+        days = {}
+    
+    # إذا تم تحديد تاريخ معين، نبحث فيه فقط
+    if payload.date:
+        search_dates = [payload.date]
+    else:
+        # البحث في كل التواريخ
+        search_dates = list(days.keys())
+    
+    # البحث عن الكود في التواريخ المحددة
+    for date_key in search_dates:
+        day_obj = days.get(date_key)
+        if not isinstance(day_obj, dict):
+            continue
+        
+        patients = day_obj.get("patients", [])
+        if not isinstance(patients, list):
+            continue
+        
+        # البحث عن المريض بالكود
+        for patient in patients:
+            if not isinstance(patient, dict):
+                continue
+            
+            if patient.get("code") == payload.code:
+                # وجدنا المريض!
+                return schemas.VerifyGoldenCodeResponse(
+                    status="success",
+                    patient_name=patient.get("name"),
+                    patient_phone=patient.get("phone"),
+                    patient_id=str(patient.get("patient_id")) if patient.get("patient_id") else None,
+                    booking_id=patient.get("booking_id"),
+                    token=patient.get("token"),
+                    booking_status=patient.get("status"),
+                    booking_date=date_key
+                )
+    
+    # لم نجد الكود
+    return schemas.VerifyGoldenCodeResponse(
+        status="error",
+        message="الكود غير صحيح أو غير موجود"
+    )
+
+
 @router.get("/all_days_golden", response_model=schemas.AllDaysResponse)
 def get_all_days_golden(
     clinic_id: int,

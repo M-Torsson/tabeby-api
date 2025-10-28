@@ -489,6 +489,24 @@ class GoldenBookingResponse(BaseModel):
     patient_id: str | None = None
 
 
+class VerifyGoldenCodeRequest(BaseModel):
+    clinic_id: int
+    code: str
+    date: str | None = None  # اختياري - إذا لم يُرسل نبحث في كل التواريخ
+
+
+class VerifyGoldenCodeResponse(BaseModel):
+    status: str  # "success" أو "error"
+    message: str | None = None
+    patient_name: str | None = None
+    patient_phone: str | None = None
+    patient_id: str | None = None
+    booking_id: str | None = None
+    token: int | None = None
+    booking_status: str | None = None
+    booking_date: str | None = None
+
+
 # ===== Clinic Status Schemas =====
 class ClinicStatusUpdateRequest(BaseModel):
     clinic_id: int
