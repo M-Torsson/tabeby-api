@@ -470,6 +470,12 @@ def toggle_ad_status(
                 
                 # تحديث البيانات
                 data["ad_status"] = new_status
+                
+                # إذا تم تفعيل الإعلان، أضف activated_at
+                if new_status and not current_status:
+                    from datetime import datetime
+                    data["activated_at"] = datetime.utcnow().isoformat() + "Z"
+                
                 ad.payload_json = json.dumps(data, ensure_ascii=False)
                 ad.ad_status = new_status
                 

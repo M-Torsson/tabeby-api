@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import logging
 from fastapi import FastAPI, Depends, HTTPException, APIRouter, Request, Response
 from sqlalchemy.orm import Session
@@ -90,11 +91,59 @@ app.add_middleware(
 # TODO: Fix middleware implementation
 # app.add_middleware(IraqTimezoneMiddleware)
 
+# Background task لحذف الإعلانات المنتهية
+async def delete_expired_ads_task():
+    """حذف الإعلانات التي مر عليها 24 ساعة من التفعيل"""
+    import asyncio
+    from datetime import datetime, timedelta
+    
+    while True:
+        try:
+            db = SessionLocal()
+            now = datetime.utcnow()
+            cutoff_time = now - timedelta(hours=24)
+            
+            # حذف الإعلانات النشطة التي مر عليها 24 ساعة
+            deleted_count = 0
+            ads = db.query(models.Ad).filter(models.Ad.ad_status == True).all()
+            
+            for ad in ads:
+                try:
+                    data = json.loads(ad.payload_json) if ad.payload_json else {}
+                    activated_at_str = data.get("activated_at")
+                    
+                    if activated_at_str:
+                        # تحويل النص إلى datetime
+                        activated_at = datetime.fromisoformat(activated_at_str.replace('Z', '+00:00'))
+                        
+                        # إذا مر 24 ساعة، احذف الإعلان
+                        if activated_at < cutoff_time:
+                            db.delete(ad)
+                            deleted_count += 1
+                except Exception as e:
+                    logger.error(f"Error processing ad {ad.id}: {e}")
+                    continue
+            
+            if deleted_count > 0:
+                db.commit()
+                logger.info(f"🗑️ Deleted {deleted_count} expired ads")
+            
+            db.close()
+        except Exception as e:
+            logger.error(f"Error in delete_expired_ads_task: {e}")
+        
+        # انتظر ساعة قبل التحقق مرة أخرى
+        await asyncio.sleep(3600)
+
 # Startup Event
 @app.on_event("startup")
 async def startup_event():
     """تنفيذ عند بدء التطبيق"""
     logger.info("🚀 Starting Tabeby API v2.0.0 (Optimized for 10K+ users)...")
+    
+    # بدء background task لحذف الإعلانات القديمة
+    import asyncio
+    asyncio.create_task(delete_expired_ads_task())
     
     # التحقق من الاتصال بقاعدة البيانات
     if check_database_connection():
