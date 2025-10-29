@@ -474,18 +474,23 @@ def get_all_clinic_ads(
     _: None = Depends(require_profile_secret)
 ):
     """
-    الحصول على جميع الإعلانات مع كامل البيانات + اسم الدكتور
+    الحصول على الإعلانات النشطة فقط مع كامل البيانات + اسم الدكتور
     
-    Response: جميع الإعلانات بكامل التفاصيل + doctor_name
+    Response: الإعلانات النشطة (ad_status = true) فقط بكامل التفاصيل + doctor_name
     
     يتطلب: Doctor-Secret header
     """
-    ads = db.query(models.Ad).order_by(models.Ad.id.desc()).all()
+    # فلترة الإعلانات النشطة فقط
+    ads = db.query(models.Ad).filter(models.Ad.ad_status == True).order_by(models.Ad.id.desc()).all()
     result = []
     
     for ad in ads:
         try:
             data = json.loads(ad.payload_json) if ad.payload_json else {}
+            
+            # التأكد من أن ad_status في البيانات أيضاً true
+            if not data.get("ad_status", False):
+                continue
             
             # جلب اسم الدكتور من clinic_id
             clinic_id = data.get("clinic_id")
