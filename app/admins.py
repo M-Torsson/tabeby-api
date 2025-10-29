@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, load_only
 
 from . import models, schemas
 from .auth import get_db, get_current_admin
+from .doctors import require_profile_secret
 
 router = APIRouter(prefix="/admins", tags=["Admins"])
 
@@ -198,9 +199,8 @@ def update_admin(admin_id: int, payload: schemas.AdminAdminUpdate, db: Session =
 
 
 @router.delete("/{admin_id}")
-def delete_admin(admin_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    print(f"[DELETE_ADMIN] طلب حذف الإدمن: id={admin_id}, بواسطة: {current_admin.email} (superuser={current_admin.is_superuser})")
-    ensure_admin_power(current_admin, db)
+def delete_admin(admin_id: int, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
+    print(f"[DELETE_ADMIN] طلب حذف الإدمن: id={admin_id}")
     admin = (
         db.query(models.Admin)
         .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.is_superuser))
