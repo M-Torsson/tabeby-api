@@ -228,10 +228,7 @@ def _resolve_actor_and_perms(token: str, db: Session) -> tuple[Optional[models.A
 @router.post("/staff/login")
 async def staff_login(request: Request, db: Session = Depends(get_db)):
     _ensure_staff_table(db)
-    # يجب وجود عمود password_hash لدعم تسجيل دخول الموظف
-    if "password_hash" not in _staff_available_columns(db):
-        raise HTTPException(status_code=500, detail="إعداد قاعدة البيانات ناقص: عمود password_hash غير موجود في staff")
-
+    
     # قبول JSON أو form
     email = None
     password = None
