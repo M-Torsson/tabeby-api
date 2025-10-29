@@ -56,7 +56,7 @@ print(f'Response: {r2.json()}')
 print('\n[Test 3] Check response format matches requirements')
 if r1.status_code == 200:
     response = r1.json()
-    required_fields = ["ad_ID", "ad_image", "ad_state", "clinic_id", "ad_status", "expierd_date"]
+    required_fields = ["ad_ID", "ad_image", "ad_state", "clinic_id", "ad_status", "expired_date"]
     print('Required fields check:')
     for field in required_fields:
         exists = field in response

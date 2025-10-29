@@ -258,7 +258,7 @@ async def create_clinic_ad(
         "ad_state": "كركوك",
         "clinic_id": 6,
         "ad_status": true,
-        "expierd_date": "23/10/2025"
+        "expired_date": "23/10/2025"
     }
     
     يتطلب: Doctor-Secret header
@@ -312,7 +312,7 @@ async def create_clinic_ad(
     ad_status_input = body.get("ad_status", "false")
     ad_status = False  # دائماً نبدأ بـ false
     
-    # حساب expierd_date (30 يوم من الآن)
+    # حساب expired_date (30 يوم من الآن)
     from datetime import timedelta
     expired_date = datetime.now() + timedelta(days=30)
     expired_date_str = expired_date.strftime("%d/%m/%Y")
@@ -353,7 +353,7 @@ async def create_clinic_ad(
         "ad_state": body.get("ad_state"),
         "clinic_id": clinic_id,
         "ad_status": ad_status,
-        "expierd_date": expired_date_str
+        "expired_date": expired_date_str
     }
 
 

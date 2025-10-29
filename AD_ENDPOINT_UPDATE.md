@@ -31,13 +31,13 @@
   "ad_state": "القاهرة",
   "clinic_id": 7,
   "ad_status": false,
-  "expierd_date": "28/11/2025"
+  "expired_date": "28/11/2025"
 }
 ```
 
 **ملاحظات على Response:**
 - ✅ `ad_image` بدلاً من `ad_image_url`
-- ✅ `expierd_date` بدلاً من `expired_date` (كما طلبت)
+- ✅ `expired_date` تاريخ انتهاء الإعلان (30 يوم من تاريخ الإنشاء)
 - ✅ `ad_status` دائماً `false` عند الإنشاء
 - ✅ فقط 6 حقول في الاستجابة (مبسط)
 
