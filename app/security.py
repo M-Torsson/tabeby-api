@@ -38,10 +38,9 @@ def get_password_hash(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # تقليم كلمة المرور إلى 72 حرف
-    plain_password = plain_password[:72] if len(plain_password) > 72 else plain_password
-    return pwd_context.verify(plain_password, hashed_password)
-    return pwd_context.verify(password_truncated, hashed_password)
+    # تحويل كلمة المرور إلى bytes وقصها إلى 72 بايت (نفس الطريقة المستخدمة في التسجيل)
+    password_bytes = plain_password.encode('utf-8')[:72]
+    return pwd_context.verify(password_bytes, hashed_password)
 
 
 def _now() -> datetime:
