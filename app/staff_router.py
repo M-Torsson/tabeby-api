@@ -253,6 +253,9 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
     if not email or not password:
         raise HTTPException(status_code=400, detail="يجب إرسال البريد وكلمة المرور")
 
+    # قص كلمة المرور إلى 72 بايت (نفس الطريقة المستخدمة عند الإنشاء)
+    password_bytes = password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
+
     try:
         # جلب الموظف والتأكد من الحالة وكلمة المرور
         row = (
@@ -280,7 +283,7 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="الحساب لا يحتوي على كلمة مرور، يرجى التواصل مع الإدارة")
     
     try:
-        if not verify_password(password, pwd_hash):
+        if not verify_password(password_bytes, pwd_hash):
             raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
     except Exception as e:
         print(f"[STAFF_LOGIN] Password verification error: {e}")
