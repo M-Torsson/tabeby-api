@@ -192,6 +192,70 @@ CREATE INDEX idx_clinic_payment_month ON golden_payments(clinic_id, payment_mont
 
 ---
 
+### 5️⃣ عرض جميع المدفوعات لكل العيادات (للأدمن)
+**GET** `/api/all_clinics_golden_payments`
+
+#### Response (200):
+```json
+{
+  "total_clinics": 3,
+  "total_payments": 45,
+  "total_amount": 67500,
+  "total_paid": 45000,
+  "total_remain": 22500,
+  "clinics": [
+    {
+      "clinic_id": 4,
+      "total_patients": 20,
+      "total_amount": 30000,
+      "total_paid": 22500,
+      "remain_amount": 7500,
+      "months": {
+        "2025-10": {
+          "patient_count": 10,
+          "amount": 15000,
+          "payment_status": "paid"
+        },
+        "2025-11": {
+          "patient_count": 10,
+          "amount": 15000,
+          "payment_status": "not_paid"
+        }
+      }
+    },
+    {
+      "clinic_id": 6,
+      "total_patients": 15,
+      "total_amount": 22500,
+      "total_paid": 15000,
+      "remain_amount": 7500,
+      "months": {
+        "2025-10": {
+          "patient_count": 10,
+          "amount": 15000,
+          "payment_status": "paid"
+        },
+        "2025-11": {
+          "patient_count": 5,
+          "amount": 7500,
+          "payment_status": "not_paid"
+        }
+      }
+    }
+  ]
+}
+```
+
+**الفائدة (للأدمن):**
+- نظرة شاملة على جميع العيادات في نظام واحد
+- إجمالي عدد العيادات المشتركة في Golden Bookings
+- إجمالي عدد المدفوعات عبر جميع العيادات
+- المبلغ الإجمالي المطلوب والمدفوع والمتبقي
+- تفاصيل كل عيادة (عدد المرضى، المبالغ الشهرية)
+- سهولة متابعة العيادات المتأخرة في الدفع
+
+---
+
 ## الحماية والأمان
 
 جميع الـ APIs تتطلب Header للمصادقة:
@@ -266,6 +330,12 @@ curl -X POST "http://localhost:8000/api/update_payment_status" \
     "payment_month": "2025-10",
     "payment_status": "paid"
   }'
+```
+
+#### 5. عرض جميع مدفوعات كل العيادات (للأدمن):
+```bash
+curl -X GET "http://localhost:8000/api/all_clinics_golden_payments" \
+  -H "Doctor-Secret: test-secret"
 ```
 
 ---
@@ -381,6 +451,76 @@ GET /api/doctor_annual_payment_status?clinic_id=4
 
 ---
 
+## سيناريو الأدمن: مراقبة جميع العيادات
+
+### الهدف:
+الأدمن يريد رؤية نظرة شاملة على جميع مدفوعات Golden Bookings عبر كل العيادات.
+
+#### طلب التقرير الشامل:
+```bash
+GET /api/all_clinics_golden_payments
+```
+
+**النتيجة:**
+```json
+{
+  "total_clinics": 3,
+  "total_payments": 45,
+  "total_amount": 67500,
+  "total_paid": 45000,
+  "total_remain": 22500,
+  "clinics": [
+    {
+      "clinic_id": 4,
+      "total_patients": 20,
+      "total_amount": 30000,
+      "total_paid": 22500,
+      "remain_amount": 7500,
+      "months": {
+        "2025-10": {"patient_count": 10, "amount": 15000, "payment_status": "paid"},
+        "2025-11": {"patient_count": 10, "amount": 15000, "payment_status": "not_paid"}
+      }
+    },
+    {
+      "clinic_id": 6,
+      "total_patients": 15,
+      "total_amount": 22500,
+      "total_paid": 15000,
+      "remain_amount": 7500,
+      "months": {
+        "2025-10": {"patient_count": 10, "amount": 15000, "payment_status": "paid"},
+        "2025-11": {"patient_count": 5, "amount": 7500, "payment_status": "not_paid"}
+      }
+    },
+    {
+      "clinic_id": 8,
+      "total_patients": 10,
+      "total_amount": 15000,
+      "total_paid": 7500,
+      "remain_amount": 7500,
+      "months": {
+        "2025-10": {"patient_count": 5, "amount": 7500, "payment_status": "paid"},
+        "2025-11": {"patient_count": 5, "amount": 7500, "payment_status": "not_paid"}
+      }
+    }
+  ]
+}
+```
+
+**التحليل:**
+- **إجمالي 3 عيادات** مشتركة في Golden Bookings
+- **45 مريض** تمت معاينتهم
+- **67,500 دينار** إجمالي المبلغ المطلوب
+- **45,000 دينار** تم دفعه (67% من الإجمالي)
+- **22,500 دينار** متبقي (33% من الإجمالي)
+
+**ملاحظات للأدمن:**
+- العيادة رقم 4: متأخرة بـ 7,500 دينار (شهر نوفمبر)
+- العيادة رقم 6: متأخرة بـ 7,500 دينار (شهر نوفمبر)
+- العيادة رقم 8: متأخرة بـ 7,500 دينار (شهر نوفمبر)
+
+---
+
 ## ملاحظات مهمة
 
 1. **المبلغ الثابت:** كل مريض = 1500 دينار عراقي
@@ -397,10 +537,11 @@ GET /api/doctor_annual_payment_status?clinic_id=4
 
 1. **app/models.py** - إضافة `GoldenPayment` model
 2. **app/schemas.py** - إضافة `GoldenPatientPaymentRequest` و `GoldenPatientPaymentResponse`
-3. **app/golden_payments.py** - Router جديد يحتوي 4 endpoints
+3. **app/golden_payments.py** - Router جديد يحتوي 5 endpoints
 4. **app/main.py** - تسجيل الـ router الجديد
 5. **migrations/add_golden_payments.sql** - Migration لإنشاء الجدول
 6. **test_golden_payments.py** - دليل الاختبار مع أمثلة curl
+7. **test_all_clinics_payments.py** - اختبار API جميع العيادات
 
 ---
 
@@ -414,10 +555,11 @@ Add golden payments tracking system - Monthly/annual reports with 1500 IQD per p
 
 - Created golden_payments table with migration
 - Added GoldenPayment model with clinic_id and payment_month indexes
-- Implemented 4 endpoints: save payment, monthly report, annual report, update status
+- Implemented 5 endpoints: save payment, monthly report, annual report, update status, all clinics view
 - Fixed amount calculation: 1500 IQD per patient
 - Monthly grouping by YYYY-MM format
 - Payment status tracking (not_paid/paid)
+- Admin endpoint to view all clinics payments
 ```
 
 ---

@@ -283,3 +283,114 @@ def update_payment_status(
         "payment_status": payment_status,
         "updated_count": updated_count
     }
+
+
+@router.get("/all_clinics_golden_payments")
+def all_clinics_golden_payments(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    عرض جميع مدفوعات Golden Bookings لكل العيادات (للأدمن).
+    
+    Response:
+    {
+        "total_clinics": 5,
+        "total_payments": 120,
+        "total_amount": 180000,
+        "total_paid": 120000,
+        "total_remain": 60000,
+        "clinics": [
+            {
+                "clinic_id": 4,
+                "clinic_name": "عيادة د. أحمد",
+                "total_patients": 25,
+                "total_amount": 37500,
+                "total_paid": 30000,
+                "remain_amount": 7500,
+                "months": {
+                    "2025-10": {
+                        "patient_count": 10,
+                        "amount": 15000,
+                        "payment_status": "paid"
+                    },
+                    "2025-11": {
+                        "patient_count": 15,
+                        "amount": 22500,
+                        "payment_status": "not_paid"
+                    }
+                }
+            },
+            ...
+        ]
+    }
+    
+    يتطلب: Doctor-Secret header
+    """
+    # جلب جميع الدفعات من جميع العيادات
+    all_payments = db.query(models.GoldenPayment).order_by(
+        models.GoldenPayment.clinic_id.asc(),
+        models.GoldenPayment.payment_month.asc()
+    ).all()
+    
+    # تجميع البيانات حسب العيادة والشهر
+    clinics_data: Dict[int, dict] = defaultdict(lambda: {
+        "clinic_id": 0,
+        "total_patients": 0,
+        "total_amount": 0,
+        "total_paid": 0,
+        "remain_amount": 0,
+        "months": defaultdict(lambda: {
+            "patient_count": 0,
+            "amount": 0,
+            "payment_status": "not_paid"
+        })
+    })
+    
+    total_payments = 0
+    total_amount = 0
+    total_paid = 0
+    
+    for payment in all_payments:
+        clinic_id = payment.clinic_id
+        month = payment.payment_month
+        
+        # تحديث بيانات العيادة
+        clinic_data = clinics_data[clinic_id]
+        clinic_data["clinic_id"] = clinic_id
+        clinic_data["total_patients"] += 1
+        clinic_data["total_amount"] += payment.amount
+        
+        # تحديث بيانات الشهر
+        month_data = clinic_data["months"][month]
+        month_data["patient_count"] += 1
+        month_data["amount"] += payment.amount
+        
+        # حساب المدفوع
+        if payment.payment_status == "paid":
+            month_data["payment_status"] = "paid"
+            clinic_data["total_paid"] += payment.amount
+            total_paid += payment.amount
+        
+        # الإحصائيات العامة
+        total_payments += 1
+        total_amount += payment.amount
+    
+    # حساب المتبقي لكل عيادة
+    for clinic_data in clinics_data.values():
+        clinic_data["remain_amount"] = clinic_data["total_amount"] - clinic_data["total_paid"]
+        clinic_data["months"] = dict(clinic_data["months"])
+    
+    total_remain = total_amount - total_paid
+    
+    # ترتيب العيادات حسب clinic_id
+    clinics_list = sorted(clinics_data.values(), key=lambda x: x["clinic_id"])
+    
+    return {
+        "total_clinics": len(clinics_data),
+        "total_payments": total_payments,
+        "total_amount": total_amount,
+        "total_paid": total_paid,
+        "total_remain": total_remain,
+        "clinics": clinics_list
+    }
