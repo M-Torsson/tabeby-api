@@ -515,3 +515,21 @@ class ClinicStatusUpdateRequest(BaseModel):
 class ClinicStatusResponse(BaseModel):
     clinic_id: int
     is_closed: bool
+
+
+# ===== Golden Payment Schemas =====
+class GoldenPatientPaymentRequest(BaseModel):
+    clinic_id: int
+    exam_date: str  # Format: DD/MM/YYYY
+    book_status: str
+    patient_name: str
+    booking_id: str
+    code: str
+
+class GoldenPatientPaymentResponse(BaseModel):
+    message: str
+    booking_id: str
+    patient_name: str
+    amount: int
+    payment_month: str
+    payment_status: str

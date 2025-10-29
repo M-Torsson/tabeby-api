@@ -346,3 +346,26 @@ class ClinicStatus(Base):
     is_closed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=now_utc_for_storage)
     updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
+
+
+# ===== Golden Payments (track monthly payments for golden bookings) =====
+
+class GoldenPayment(Base):
+    __tablename__ = "golden_payments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    clinic_id = Column(Integer, index=True, nullable=False)
+    booking_id = Column(String(255), unique=True, nullable=False, index=True)
+    patient_name = Column(String(255), nullable=False)
+    code = Column(String(4), nullable=False)
+    exam_date = Column(String(20), nullable=False)
+    book_status = Column(String(50), nullable=False, default="تمت المعاينة")
+    amount = Column(Integer, nullable=False, default=1500)
+    payment_month = Column(String(7), nullable=False, index=True)  # Format: YYYY-MM
+    payment_status = Column(String(20), nullable=False, default="not_paid", index=True)
+    created_at = Column(DateTime, default=now_utc_for_storage)
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
+    
+    __table_args__ = (
+        Index("ix_golden_payments_clinic_month", "clinic_id", "payment_month"),
+    )
