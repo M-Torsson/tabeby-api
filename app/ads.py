@@ -181,6 +181,8 @@ def list_ads_by_clinic(clinic_id: int, db: Session = Depends(get_db)):
 def _validate_image_dimensions_and_size(image_url: str) -> tuple[bool, str | None]:
     """
     التحقق من أبعاد وحجم الصورة.
+    ⚠️ هذه الدالة مُعطّلة حالياً - لا تُستخدم في /create_clinic_ad (للدكتور في التطبيق)
+    يمكن استخدامها في endpoint الداشبورد إذا لزم الأمر.
     
     Returns:
         (True, None) إذا كانت الصورة صالحة
@@ -282,14 +284,9 @@ async def create_clinic_ad(
                 content={"error": {"code": "bad_request", "message": f"{field} مطلوب"}}
             )
     
-    # التحقق من أبعاد وحجم الصورة
+    # لا نقوم بالتحقق من أبعاد الصورة للدكتور في التطبيق
+    # التحقق يكون فقط في الداشبورد
     image_url = body.get("ad_image_url")
-    is_valid, error_message = _validate_image_dimensions_and_size(image_url)
-    if not is_valid:
-        return JSONResponse(
-            status_code=400,
-            content={"error": {"code": "invalid_image", "message": error_message}}
-        )
     
     # تحويل clinic_id إلى رقم
     try:
