@@ -90,7 +90,7 @@ def golden_patient_payment(
         book_status=payload.book_status,
         amount=1500,  # ثابت
         payment_month=payment_month,
-        payment_status="not_paid"  # افتراضياً
+        payment_status="paid"  # مدفوع مباشرة عند التأكيد
     )
     
     db.add(payment)
