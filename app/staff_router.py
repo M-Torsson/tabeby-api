@@ -1,5 +1,6 @@
 from typing import Optional, List
 import os
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Form, Request, Response
 from sqlalchemy.orm import Session, load_only
 from sqlalchemy import func, text, inspect
@@ -279,8 +280,10 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
     if not pwd_hash:
         raise HTTPException(status_code=401, detail="الحساب لا يحتوي على كلمة مرور، يرجى التواصل مع الإدارة")
     
+    # التحقق من كلمة المرور مباشرة مع bcrypt (نفس طريقة الأدمن)
+    password_bytes = password.encode('utf-8')[:72]
     try:
-        if not verify_password(password, pwd_hash):
+        if not bcrypt.checkpw(password_bytes, pwd_hash.encode('utf-8')):
             raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
     except Exception as e:
         print(f"[STAFF_LOGIN] Password verification error: {e}")
@@ -1072,19 +1075,18 @@ def create_staff_simple(
         new_staff = models.Staff(
             email=email,
             name=name,
-            password_hash=password_hash
+            password_hash=password_hash,
+            role_key='staff',  # تعيين الدور كـ staff بشكل افتراضي
+            status='active'
         )
         
-        # إضافة الحقول الاختيارية
+        # إضافة الحقول الاختيارية (يمكن تغيير role_key إذا تم إرساله)
         if "role_key" in payload:
             new_staff.role_key = payload["role_key"]
         if "department" in payload:
             new_staff.department = payload["department"]
         if "phone" in payload:
             new_staff.phone = payload["phone"]
-        
-        # تعيين الحالة
-        new_staff.status = 'active'
         
         db.add(new_staff)
         db.commit()
