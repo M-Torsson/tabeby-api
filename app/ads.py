@@ -1,12 +1,16 @@
 from __future__ import annotations
 import json
 import uuid
+import base64
+import io
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from PIL import Image
+import requests
 
 from .database import SessionLocal
 from . import models
@@ -174,6 +178,49 @@ def list_ads_by_clinic(clinic_id: int, db: Session = Depends(get_db)):
 
 # ==================== NEW AD ENDPOINTS ====================
 
+def _validate_image_dimensions_and_size(image_url: str) -> tuple[bool, str | None]:
+    """
+    التحقق من أبعاد وحجم الصورة.
+    
+    Returns:
+        (True, None) إذا كانت الصورة صالحة
+        (False, error_message) إذا كانت الصورة غير صالحة
+    """
+    try:
+        # تحميل الصورة من URL مع timeout قصير
+        response = requests.get(image_url, timeout=10, stream=True, allow_redirects=True)
+        if response.status_code != 200:
+            return False, f"فشل تحميل الصورة (HTTP {response.status_code})"
+        
+        # قراءة محتوى الصورة مع حد أقصى 2MB
+        image_data = b''
+        total_size = 0
+        max_size = 2 * 1024 * 1024  # 2MB
+        
+        for chunk in response.iter_content(chunk_size=8192):
+            total_size += len(chunk)
+            if total_size > max_size:
+                return False, "حجم الصورة يجب أن يكون أقل من 2 ميجابايت"
+            image_data += chunk
+        
+        # فتح الصورة باستخدام PIL
+        image = Image.open(io.BytesIO(image_data))
+        width, height = image.size
+        
+        # التحقق من الأبعاد (يجب أن تكون بالضبط 500x250)
+        if width != 500 or height != 250:
+            return False, f"أبعاد الصورة يجب أن تكون 500x250 بالضبط. الأبعاد الحالية: {width}x{height}"
+        
+        return True, None
+        
+    except requests.exceptions.Timeout:
+        return False, "انتهت مهلة الاتصال بالصورة"
+    except requests.exceptions.RequestException as e:
+        return False, f"فشل الاتصال بالصورة: {str(e)}"
+    except Exception as e:
+        return False, f"خطأ في معالجة الصورة: {str(e)}"
+
+
 @router.post("/create_clinic_ad")
 async def create_clinic_ad(
     request: Request,
@@ -181,22 +228,37 @@ async def create_clinic_ad(
     _: None = Depends(require_profile_secret)
 ):
     """
-    إنشاء إعلان عيادة جديد.
+    إنشاء إعلان عيادة جديد مع التحقق من أبعاد وحجم الصورة.
     
     Body مطلوب:
     {
-        "created_date": "22/10/2025",
-        "clinic_name": "عيادة الامال الحالمة",
+        "request_date": "22/10/2025",
+        "clinic_name": "عيادة الأسنان",
         "ad_subtitle": "عيادة متخصصة في كل شيء",
-        "ad_description": "وصف الإعلان",
-        "ad_phonenumber": "07885441223",
-        "ad_state": "كركوك",
-        "ad_discount": "30%",
-        "ad_price": "20000",
+        "ad_description": "عرض خاص",
+        "ad_phonenumber": "٠١٠١٢٣٤٥٦٧٨",
+        "ad_state": "القاهرة",
+        "ad_discount": "٢٠",
+        "ad_price": "١٠٠",
+        "ad_address": "الحي الاول",
         "team_message": "رسالة الفريق",
         "ad_image_url": "https://...",
+        "clinic_id": "7",
+        "ad_status": "active"
+    }
+    
+    متطلبات الصورة:
+    - الأبعاد: 500x250 بالضبط
+    - الحجم: أقل من 2MB
+    
+    Response:
+    {
+        "ad_ID": "234333_rert34_rre5334",
+        "ad_image": "http://ww.image",
+        "ad_state": "كركوك",
         "clinic_id": 6,
-        "ad_status": false
+        "ad_status": true,
+        "expierd_date": "23/10/2025"
     }
     
     يتطلب: Doctor-Secret header
@@ -212,44 +274,54 @@ async def create_clinic_ad(
         )
     
     # التحقق من الحقول المطلوبة
-    required_fields = ["clinic_id", "clinic_name", "ad_image_url", "ad_state"]
+    required_fields = ["clinic_id", "ad_image_url", "ad_state"]
     for field in required_fields:
         if field not in body or not body[field]:
             return JSONResponse(
                 status_code=400,
-                content={"error": {"code": "bad_request", "message": f"{field} is required"}}
+                content={"error": {"code": "bad_request", "message": f"{field} مطلوب"}}
             )
     
+    # التحقق من أبعاد وحجم الصورة
+    image_url = body.get("ad_image_url")
+    is_valid, error_message = _validate_image_dimensions_and_size(image_url)
+    if not is_valid:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "invalid_image", "message": error_message}}
+        )
+    
+    # تحويل clinic_id إلى رقم
+    try:
+        clinic_id = int(_to_ascii_digits(body["clinic_id"]))
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "bad_request", "message": "clinic_id يجب أن يكون رقماً"}}
+        )
+    
     # توليد ad_ID فريد
-    ad_id = f"{body['clinic_id']}_{uuid.uuid4().hex[:8]}_{int(datetime.now().timestamp())}"
+    ad_id = f"{clinic_id}_{uuid.uuid4().hex[:8]}_{int(datetime.now().timestamp())}"
     
     # تحويل الأرقام العربية
-    phone = _to_ascii_digits(body.get("ad_phonenumber"))
-    price = _to_ascii_digits(body.get("ad_price"))
-    discount = _to_ascii_digits(body.get("ad_discount"))
+    phone = _to_ascii_digits(body.get("ad_phonenumber", ""))
+    price = _to_ascii_digits(body.get("ad_price", ""))
+    discount = _to_ascii_digits(body.get("ad_discount", ""))
     
-    # معالجة ad_status
-    ad_status = _parse_bool(body.get("ad_status", False))
+    # معالجة ad_status - نحفظه false دائماً حتى يتم التفعيل
+    ad_status_input = body.get("ad_status", "false")
+    ad_status = False  # دائماً نبدأ بـ false
     
-    # حساب expired_date (30 يوم من created_date)
-    created_date_str = body.get("created_date", datetime.now().strftime("%d/%m/%Y"))
-    try:
-        created_date = datetime.strptime(created_date_str, "%d/%m/%Y")
-        from datetime import timedelta
-        expired_date = created_date + timedelta(days=30)
-        expired_date_str = expired_date.strftime("%d/%m/%Y")
-    except Exception:
-        # إذا فشل التحويل، استخدم التاريخ الحالي + 30 يوم
-        from datetime import timedelta
-        expired_date = datetime.now() + timedelta(days=30)
-        expired_date_str = expired_date.strftime("%d/%m/%Y")
+    # حساب expierd_date (30 يوم من الآن)
+    from datetime import timedelta
+    expired_date = datetime.now() + timedelta(days=30)
+    expired_date_str = expired_date.strftime("%d/%m/%Y")
     
-    # بناء الـ payload
+    # بناء الـ payload الكامل للحفظ في قاعدة البيانات
     ad_data = {
         "ad_ID": ad_id,
-        "created_date": created_date_str,
-        "request_date": body.get("request_date", ""),
-        "clinic_name": body.get("clinic_name"),
+        "request_date": body.get("request_date", datetime.now().strftime("%d/%m/%Y")),
+        "clinic_name": body.get("clinic_name", ""),
         "ad_subtitle": body.get("ad_subtitle", ""),
         "ad_description": body.get("ad_description", ""),
         "ad_address": body.get("ad_address", ""),
@@ -258,15 +330,15 @@ async def create_clinic_ad(
         "ad_discount": discount,
         "ad_price": price,
         "team_message": body.get("team_message", ""),
-        "ad_image_url": body.get("ad_image_url"),
-        "clinic_id": int(body["clinic_id"]),
+        "ad_image_url": image_url,
+        "clinic_id": clinic_id,
         "ad_status": ad_status,
         "expired_date": expired_date_str
     }
     
     # حفظ في قاعدة البيانات
     ad = models.Ad(
-        clinic_id=int(body["clinic_id"]),
+        clinic_id=clinic_id,
         payload_json=json.dumps(ad_data, ensure_ascii=False),
         ad_status=ad_status,
     )
@@ -274,11 +346,14 @@ async def create_clinic_ad(
     db.commit()
     db.refresh(ad)
     
+    # Response بالصيغة المطلوبة فقط
     return {
-        "message": "Ad created successfully",
         "ad_ID": ad_id,
-        "database_id": ad.id,
-        "data": ad_data
+        "ad_image": image_url,
+        "ad_state": body.get("ad_state"),
+        "clinic_id": clinic_id,
+        "ad_status": ad_status,
+        "expierd_date": expired_date_str
     }
 
 
