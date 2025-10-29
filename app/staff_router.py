@@ -227,7 +227,10 @@ def _resolve_actor_and_perms(token: str, db: Session) -> tuple[Optional[models.A
 
 @router.post("/staff/login")
 async def staff_login(request: Request, db: Session = Depends(get_db)):
-    _ensure_staff_table(db)
+    try:
+        _ensure_staff_table(db)
+    except Exception as e:
+        print(f"[STAFF_LOGIN] Warning: _ensure_staff_table failed: {e}")
     
     # قبول JSON أو form
     email = None
@@ -243,27 +246,52 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
             form = await request.form()
             email = (form.get("email") or "").strip()
             password = form.get("password")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[STAFF_LOGIN] Error parsing request: {e}")
+        raise HTTPException(status_code=400, detail="خطأ في قراءة البيانات")
+    
     if not email or not password:
         raise HTTPException(status_code=400, detail="يجب إرسال البريد وكلمة المرور")
 
-    # جلب الموظف والتأكد من الحالة وكلمة المرور
-    row = (
-        db.execute(
-            text("SELECT id, name, email, role_key, status, password_hash FROM staff WHERE LOWER(email)=:e LIMIT 1"),
-            {"e": email.lower()},
+    try:
+        # جلب الموظف والتأكد من الحالة وكلمة المرور
+        row = (
+            db.execute(
+                text("SELECT id, name, email, role_key, status, password_hash FROM staff WHERE LOWER(email)=:e LIMIT 1"),
+                {"e": email.lower()},
+            )
+            .mappings()
+            .first()
         )
-        .mappings()
-        .first()
-    )
-    if not row or (row.get("status") or "active") != "active":
+    except Exception as e:
+        print(f"[STAFF_LOGIN] Database query error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"خطأ في قاعدة البيانات: {str(e)}")
+    
+    if not row:
         raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
+    
+    if (row.get("status") or "active") != "active":
+        raise HTTPException(status_code=401, detail="الحساب غير مفعل")
+    
     pwd_hash = row.get("password_hash")
-    if not pwd_hash or not verify_password(password, pwd_hash):
-        raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة")
+    if not pwd_hash:
+        raise HTTPException(status_code=401, detail="الحساب لا يحتوي على كلمة مرور، يرجى التواصل مع الإدارة")
+    
+    try:
+        if not verify_password(password, pwd_hash):
+            raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
+    except Exception as e:
+        print(f"[STAFF_LOGIN] Password verification error: {e}")
+        raise HTTPException(status_code=401, detail="خطأ في التحقق من كلمة المرور")
 
-    token = create_access_token(subject=f"staff:{int(row.get('id'))}", extra={"type": "staff"})
+    try:
+        token = create_access_token(subject=f"staff:{int(row.get('id'))}", extra={"type": "staff"})
+    except Exception as e:
+        print(f"[STAFF_LOGIN] Token creation error: {e}")
+        raise HTTPException(status_code=500, detail="خطأ في إنشاء الرمز")
+    
     return {
         "data": {
             "accessToken": token["token"],
