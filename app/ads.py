@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from PIL import Image
@@ -676,6 +676,125 @@ def delete_ad(
         status_code=404,
         content={"error": {"code": "not_found", "message": "Ad not found"}}
     )
+
+
+@router.post("/update_ad_with_image")
+async def update_ad_with_image(
+    ad_ID: str = Form(...),
+    ad_image_url: Optional[str] = Form(None),
+    image: UploadFile = File(None),
+    clinic_name: Optional[str] = Form(None),
+    ad_subtitle: Optional[str] = Form(None),
+    ad_description: Optional[str] = Form(None),
+    ad_phonenumber: Optional[str] = Form(None),
+    ad_state: Optional[str] = Form(None),
+    ad_discount: Optional[str] = Form(None),
+    ad_price: Optional[str] = Form(None),
+    ad_address: Optional[str] = Form(None),
+    team_message: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    تعديل الإعلان مع إمكانية تحديث الصورة
+    
+    Form Data:
+    - ad_ID: معرف الإعلان (مطلوب)
+    - ad_image_url: رابط الصورة الجديدة (اختياري - استخدم هذا إذا رفعت الصورة إلى Firebase مسبقاً)
+    - image: ملف الصورة (اختياري - سيتم تحويلها إلى base64)
+    - clinic_name: اسم العيادة (اختياري)
+    - وبقية الحقول...
+    
+    ملاحظة: يُفضل رفع الصورة إلى Firebase أولاً ثم إرسال ad_image_url
+    
+    يتطلب: Doctor-Secret header
+    """
+    if not ad_ID:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "bad_request", "message": "ad_ID مطلوب"}}
+        )
+    
+    # البحث عن الإعلان
+    ads = db.query(models.Ad).all()
+    found_ad = None
+    
+    for ad in ads:
+        try:
+            data = json.loads(ad.payload_json) if ad.payload_json else {}
+            if data.get("ad_ID") == ad_ID:
+                found_ad = ad
+                break
+        except Exception:
+            continue
+    
+    if not found_ad:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "not_found", "message": "الإعلان غير موجود"}}
+        )
+    
+    # تحميل البيانات الحالية
+    data = json.loads(found_ad.payload_json) if found_ad.payload_json else {}
+    
+    # تحديث رابط الصورة إذا تم إرساله
+    if ad_image_url:
+        data["ad_image_url"] = ad_image_url
+        print(f"[UPDATE_AD] Image URL updated for ad {ad_ID}")
+    
+    # معالجة ملف الصورة إذا تم رفعه (كـ base64)
+    elif image and image.filename:
+        try:
+            # قراءة محتوى الصورة
+            image_content = await image.read()
+            
+            # تحويل إلى base64 (للاستخدام المؤقت)
+            image_base64 = base64.b64encode(image_content).decode('utf-8')
+            
+            # حفظ كـ data URL
+            # ⚠️ ملاحظة: يُفضل رفع الصورة إلى Firebase Storage للحصول على URL دائم
+            data["ad_image_url"] = f"data:image/jpeg;base64,{image_base64}"
+            
+            print(f"[UPDATE_AD] Image file uploaded for ad {ad_ID}, size: {len(image_content)} bytes")
+            
+        except Exception as e:
+            print(f"[UPDATE_AD] Error processing image: {e}")
+            return JSONResponse(
+                status_code=400,
+                content={"error": {"code": "image_error", "message": f"خطأ في معالجة الصورة: {str(e)}"}}
+            )
+    
+    # تحديث الحقول الأخرى
+    if clinic_name is not None:
+        data["clinic_name"] = clinic_name
+    if ad_subtitle is not None:
+        data["ad_subtitle"] = ad_subtitle
+    if ad_description is not None:
+        data["ad_description"] = ad_description
+    if ad_phonenumber is not None:
+        data["ad_phonenumber"] = _to_ascii_digits(ad_phonenumber)
+    if ad_state is not None:
+        data["ad_state"] = ad_state
+    if ad_discount is not None:
+        data["ad_discount"] = _to_ascii_digits(ad_discount)
+    if ad_price is not None:
+        data["ad_price"] = _to_ascii_digits(ad_price)
+    if ad_address is not None:
+        data["ad_address"] = ad_address
+    if team_message is not None:
+        data["team_message"] = team_message
+    
+    # حفظ التغييرات
+    found_ad.payload_json = json.dumps(data, ensure_ascii=False)
+    db.add(found_ad)
+    db.commit()
+    db.refresh(found_ad)
+    
+    return {
+        "message": "تم تحديث الإعلان بنجاح",
+        "ad_ID": ad_ID,
+        "updated_data": data
+    }
 
 
 @router.post("/update_ad")

@@ -532,4 +532,4 @@ class GoldenPatientPaymentResponse(BaseModel):
     patient_name: str
     amount: int
     payment_month: str
-    payment_status: str
+    payment_status: Optional[str] = None  # لا يظهر في response

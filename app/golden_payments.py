@@ -90,20 +90,21 @@ def golden_patient_payment(
         book_status=payload.book_status,
         amount=1500,  # ثابت
         payment_month=payment_month,
-        payment_status="paid"  # مدفوع مباشرة عند التأكيد
+        payment_status="not_paid"  # غير مدفوع عند الإنشاء
     )
     
     db.add(payment)
     db.commit()
     db.refresh(payment)
     
+    # لا نرجع payment_status في الـ response
     return schemas.GoldenPatientPaymentResponse(
         message="تم حفظ الدفعة بنجاح",
         booking_id=payment.booking_id,
         patient_name=payment.patient_name,
         amount=payment.amount,
         payment_month=payment.payment_month,
-        payment_status=payment.payment_status
+        payment_status=None  # لا نرجعه
     )
 
 
