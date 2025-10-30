@@ -230,7 +230,9 @@ async def create_clinic_ad(
     _: None = Depends(require_profile_secret)
 ):
     """
-    إنشاء إعلان عيادة جديد مع التحقق من أبعاد وحجم الصورة.
+    إنشاء إعلان عيادة جديد.
+    
+    ⚠️ ملاحظة: الـ URL الكامل هو /api/create_clinic_ad
     
     Body مطلوب:
     {
@@ -269,7 +271,8 @@ async def create_clinic_ad(
         body = await request.json()
         if not isinstance(body, dict):
             raise ValueError("Invalid JSON")
-    except Exception:
+    except Exception as e:
+        print(f"[CREATE_AD] JSON parsing error: {e}")
         return JSONResponse(
             status_code=400,
             content={"error": {"code": "bad_request", "message": "Invalid JSON body"}}
@@ -334,14 +337,25 @@ async def create_clinic_ad(
     }
     
     # حفظ في قاعدة البيانات
-    ad = models.Ad(
-        clinic_id=clinic_id,
-        payload_json=json.dumps(ad_data, ensure_ascii=False),
-        ad_status=ad_status,
-    )
-    db.add(ad)
-    db.commit()
-    db.refresh(ad)
+    try:
+        ad = models.Ad(
+            clinic_id=clinic_id,
+            payload_json=json.dumps(ad_data, ensure_ascii=False),
+            ad_status=ad_status,
+        )
+        db.add(ad)
+        db.commit()
+        db.refresh(ad)
+        
+        print(f"[CREATE_AD] ✅ Ad created successfully: {ad_id}")
+        
+    except Exception as e:
+        print(f"[CREATE_AD] Database error: {e}")
+        db.rollback()
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"code": "server_error", "message": f"خطأ في حفظ الإعلان: {str(e)}"}}
+        )
     
     # Response بالصيغة المطلوبة فقط
     return {
