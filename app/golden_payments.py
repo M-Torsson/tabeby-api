@@ -333,9 +333,14 @@ def all_clinics_golden_payments(
         models.GoldenPayment.payment_month.asc()
     ).all()
     
+    # جلب أسماء العيادات من جدول doctors
+    doctors = db.query(models.Doctor.id, models.Doctor.name).all()
+    clinic_names = {doc.id: doc.name for doc in doctors}
+    
     # تجميع البيانات حسب العيادة والشهر
     clinics_data: Dict[int, dict] = defaultdict(lambda: {
         "clinic_id": 0,
+        "clinic_name": "",
         "total_patients": 0,
         "total_amount": 0,
         "total_paid": 0,
@@ -358,6 +363,7 @@ def all_clinics_golden_payments(
         # تحديث بيانات العيادة
         clinic_data = clinics_data[clinic_id]
         clinic_data["clinic_id"] = clinic_id
+        clinic_data["clinic_name"] = clinic_names.get(clinic_id, f"عيادة #{clinic_id}")
         clinic_data["total_patients"] += 1
         clinic_data["total_amount"] += payment.amount
         
