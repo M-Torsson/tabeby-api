@@ -312,10 +312,10 @@ async def create_clinic_ad(
     ad_status_input = body.get("ad_status", "false")
     ad_status = False  # دائماً نبدأ بـ false
     
-    # حساب expired_date (30 يوم من الآن)
+    # حساب expired_date (24 ساعة من الآن)
     from datetime import timedelta
-    expired_date = datetime.now() + timedelta(days=30)
-    expired_date_str = expired_date.strftime("%d/%m/%Y")
+    expired_date = datetime.now() + timedelta(hours=24)
+    expired_date_str = expired_date.strftime("%d/%m/%Y %H:%M")
     
     # بناء الـ payload الكامل للحفظ في قاعدة البيانات
     ad_data = {

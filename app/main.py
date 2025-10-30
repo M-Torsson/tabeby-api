@@ -94,7 +94,10 @@ app.add_middleware(
 
 # Background task لحذف الإعلانات المنتهية
 async def delete_expired_ads_task():
-    """حذف الإعلانات التي مر عليها 24 ساعة من التفعيل"""
+    """
+    حذف الإعلانات المنتهية:
+    - الإعلان ينتهي ويُحذف تلقائياً بعد 24 ساعة من الإنشاء
+    """
     import asyncio
     from datetime import datetime, timedelta
     
@@ -102,32 +105,38 @@ async def delete_expired_ads_task():
         try:
             db = SessionLocal()
             now = datetime.utcnow()
-            cutoff_time = now - timedelta(hours=24)
             
-            # حذف الإعلانات النشطة التي مر عليها 24 ساعة
+            # حذف الإعلانات التي انتهت صلاحيتها (بعد 24 ساعة)
             deleted_count = 0
-            ads = db.query(models.Ad).filter(models.Ad.ad_status == True).all()
+            ads = db.query(models.Ad).all()
             
             for ad in ads:
                 try:
                     data = json.loads(ad.payload_json) if ad.payload_json else {}
-                    activated_at_str = data.get("activated_at")
+                    expired_date_str = data.get("expired_date")
                     
-                    if activated_at_str:
-                        # تحويل النص إلى datetime
-                        activated_at = datetime.fromisoformat(activated_at_str.replace('Z', '+00:00'))
+                    if expired_date_str:
+                        # تحليل تاريخ الانتهاء (يتضمن التاريخ والوقت)
+                        try:
+                            # محاولة parse بصيغة "DD/MM/YYYY HH:MM"
+                            expired_date = datetime.strptime(expired_date_str, "%d/%m/%Y %H:%M")
+                        except:
+                            # إذا فشل، جرب الصيغة القديمة "DD/MM/YYYY"
+                            expired_date = datetime.strptime(expired_date_str, "%d/%m/%Y")
                         
-                        # إذا مر 24 ساعة، احذف الإعلان
-                        if activated_at < cutoff_time:
+                        # احذف مباشرة بعد انتهاء الـ 24 ساعة
+                        if now > expired_date:
                             db.delete(ad)
                             deleted_count += 1
+                            logger.info(f"🗑️ Deleted expired ad {ad.id} (expired at {expired_date_str})")
+                            
                 except Exception as e:
                     logger.error(f"Error processing ad {ad.id}: {e}")
                     continue
             
             if deleted_count > 0:
                 db.commit()
-                logger.info(f"🗑️ Deleted {deleted_count} expired ads")
+                logger.info(f"✅ Total deleted: {deleted_count} expired ads")
             
             db.close()
         except Exception as e:
