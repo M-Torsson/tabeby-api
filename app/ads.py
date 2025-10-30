@@ -477,6 +477,45 @@ def get_all_ads(
     return {"items": result, "count": len(result)}
 
 
+@router.get("/clinic_ads_all")
+def get_all_clinic_ads_including_inactive(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    الحصول على جميع الإعلانات (المفعّلة وغير المفعّلة) - للداشبورد
+    
+    Response: جميع الإعلانات بكامل التفاصيل + doctor_name
+    
+    يتطلب: Doctor-Secret header
+    """
+    # جلب جميع الإعلانات
+    ads = db.query(models.Ad).order_by(models.Ad.id.desc()).all()
+    result = []
+    
+    for ad in ads:
+        try:
+            data = json.loads(ad.payload_json) if ad.payload_json else {}
+            
+            # جلب اسم الدكتور من clinic_id
+            clinic_id = data.get("clinic_id")
+            doctor_name = None
+            
+            if clinic_id:
+                doctor = db.query(models.Doctor).filter(models.Doctor.id == clinic_id).first()
+                if doctor:
+                    doctor_name = doctor.name
+            
+            # إضافة اسم الدكتور
+            data["doctor_name"] = doctor_name
+            
+            result.append(data)
+        except Exception:
+            continue
+    
+    return {"items": result, "count": len(result)}
+
+
 @router.get("/clinic_ads")
 def get_all_clinic_ads(
     db: Session = Depends(get_db),
