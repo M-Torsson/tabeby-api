@@ -312,10 +312,8 @@ async def create_clinic_ad(
     ad_status_input = body.get("ad_status", "false")
     ad_status = False  # دائماً نبدأ بـ false
     
-    # حساب expired_date (24 ساعة من الآن)
-    from datetime import timedelta
-    expired_date = datetime.now() + timedelta(hours=24)
-    expired_date_str = expired_date.strftime("%d/%m/%Y %H:%M")
+    # لا نحسب expired_date عند الإنشاء - يُحسب عند التفعيل فقط
+    expired_date_str = None
     
     # بناء الـ payload الكامل للحفظ في قاعدة البيانات
     ad_data = {
@@ -562,10 +560,14 @@ def toggle_ad_status(
                 # تحديث البيانات
                 data["ad_status"] = new_status
                 
-                # إذا تم تفعيل الإعلان، أضف activated_at
+                # إذا تم تفعيل الإعلان، أضف activated_at و expired_date (24 ساعة)
                 if new_status and not current_status:
-                    from datetime import datetime
-                    data["activated_at"] = datetime.utcnow().isoformat() + "Z"
+                    from datetime import datetime, timedelta
+                    activated_at = datetime.utcnow()
+                    expired_date = activated_at + timedelta(hours=24)
+                    
+                    data["activated_at"] = activated_at.isoformat() + "Z"
+                    data["expired_date"] = expired_date.strftime("%d/%m/%Y %H:%M")
                 
                 ad.payload_json = json.dumps(data, ensure_ascii=False)
                 ad.ad_status = new_status
