@@ -312,8 +312,8 @@ async def create_clinic_ad(
     ad_status_input = body.get("ad_status", "false")
     ad_status = False  # دائماً نبدأ بـ false
     
-    # لا نحسب expired_date عند الإنشاء - يُحسب عند التفعيل فقط
-    expired_date_str = None
+    # expired_date يُحسب عند التفعيل، لكن نضع placeholder في Response
+    expired_date_str = "سيُحدد عند التفعيل"
     
     # بناء الـ payload الكامل للحفظ في قاعدة البيانات
     ad_data = {
