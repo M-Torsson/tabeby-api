@@ -175,3 +175,65 @@ def get_patients_count_stats(
         "active_list": active_list,
         "inactive_list": inactive_list
     }
+
+
+@router.delete("/patient/{patient_id}")
+def delete_patient(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """
+    حذف المريض نهائياً من النظام
+    
+    يحذف:
+    - سجل PatientProfile
+    - سجل UserAccount المرتبط
+    - جميع البيانات المرتبطة (CASCADE)
+    
+    patient_id: بصيغة "P-123" أو "123"
+    
+    يتطلب: Doctor-Secret header
+    """
+    # Parse patient_id: accept "P-123" or "123"
+    patient_id_str = patient_id.strip()
+    if patient_id_str.upper().startswith("P-"):
+        patient_id_str = patient_id_str.split("-", 1)[1]
+    
+    try:
+        ua_id = int(patient_id_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, 
+            detail="invalid patient_id format; expected P-<id> or <id>"
+        )
+    
+    # البحث عن UserAccount
+    ua = db.query(models.UserAccount).filter_by(id=ua_id).first()
+    if not ua:
+        raise HTTPException(status_code=404, detail="patient not found")
+    
+    # التحقق من أنه مريض
+    if ua.user_role != "patient":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"user is not a patient, role is: {ua.user_role}"
+        )
+    
+    # حذف البروفايل أولاً (إذا وجد)
+    prof = db.query(models.PatientProfile).filter_by(user_account_id=ua.id).first()
+    if prof:
+        db.delete(prof)
+    
+    # حذف UserAccount (سيحذف البيانات المرتبطة تلقائياً إذا كان CASCADE مفعّل)
+    db.delete(ua)
+    
+    try:
+        db.commit()
+        return {
+            "message": "تم حذف المريض نهائياً",
+            "deleted_patient_id": f"P-{ua_id}"
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"database error: {str(e)}")
