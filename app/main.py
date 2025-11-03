@@ -723,18 +723,19 @@ async def post_doctor_profile_raw(request: Request):
             # 4) إنشاء/تحديث الطبيب بمعرّف = clinic_id
             row = db.query(models.Doctor).filter_by(id=clinic_id).first()
             if row:
-                # تحديث
+                # تحديث - نحافظ على status الموجود ولا نغيره من البروفايل
                 row.name = den.get("name") or row.name or "Doctor"
                 row.email = den.get("email")
                 row.phone = den.get("phone")
                 row.experience_years = den.get("experience_years")
                 row.patients_count = den.get("patients_count")
-                row.status = den.get("status") or row.status or "active"
+                # لا نحدّث status من البروفايل - فقط عبر endpoint /api/doctor/status
                 row.specialty = den.get("specialty")
                 row.clinic_state = den.get("clinic_state")
                 row.profile_json = prof_raw
                 db.commit()
             else:
+                # إنشاء طبيب جديد - دائماً active في التسجيل الأول
                 row = models.Doctor(
                     id=clinic_id,
                     name=den.get("name") or "Doctor",
@@ -742,7 +743,7 @@ async def post_doctor_profile_raw(request: Request):
                     phone=den.get("phone"),
                     experience_years=den.get("experience_years"),
                     patients_count=den.get("patients_count"),
-                    status=den.get("status") or "active",
+                    status="active",  # دائماً مفعّل عند التسجيل الأول
                     specialty=den.get("specialty"),
                     clinic_state=den.get("clinic_state"),
                     profile_json=prof_raw,
@@ -789,18 +790,19 @@ async def post_doctor_profile_raw(request: Request):
             return Response(content=json.dumps({"error": {"code": "bad_request", "message": "clinic_id is required in general_info"}}, ensure_ascii=False), media_type="application/json", status_code=400)
         row = db.query(models.Doctor).filter_by(id=clinic_id).first()
         if row:
-            # تحديث
+            # تحديث - نحافظ على status الموجود ولا نغيره من البروفايل
             row.name = den.get("name") or row.name or "Doctor"
             row.email = den.get("email")
             row.phone = den.get("phone")
             row.experience_years = den.get("experience_years")
             row.patients_count = den.get("patients_count")
-            row.status = den.get("status") or row.status or "active"
+            # لا نحدّث status من البروفايل - فقط عبر endpoint /api/doctor/status
             row.specialty = den.get("specialty")
             row.clinic_state = den.get("clinic_state")
             row.profile_json = normalized_text
             db.commit()
         else:
+            # إنشاء طبيب جديد - دائماً active في التسجيل الأول
             row = models.Doctor(
                 id=clinic_id,
                 name=den.get("name") or "Doctor",
@@ -808,7 +810,7 @@ async def post_doctor_profile_raw(request: Request):
                 phone=den.get("phone"),
                 experience_years=den.get("experience_years"),
                 patients_count=den.get("patients_count"),
-                status=den.get("status") or "active",
+                status="active",  # دائماً مفعّل عند التسجيل الأول
                 specialty=den.get("specialty"),
                 clinic_state=den.get("clinic_state"),
                 profile_json=normalized_text,
