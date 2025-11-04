@@ -619,6 +619,7 @@ RAW_DOCTOR_PROFILE_JSON = r"""{
 
 # تحويل شكل الحقل clinic_waiting_time من الشكل القديم { value: "..." }
 # إلى الشكل الجديد { id: 3, name: "15 دقيقة" }
+# وإجبار account_status و accountStatus على true دائماً
 def _normalize_clinic_waiting_time(profile_obj: Dict[str, Any]) -> Dict[str, Any]:
     try:
         if not isinstance(profile_obj, dict):
@@ -628,6 +629,13 @@ def _normalize_clinic_waiting_time(profile_obj: Dict[str, Any]) -> Dict[str, Any
             # إن كان بالشكل القديم يحتوي value فقط، استبدله بالشكل الجديد المطلوب
             if "value" in cwt and ("id" not in cwt and "name" not in cwt):
                 profile_obj["clinic_waiting_time"] = {"id": 3, "name": "15 دقيقة"}
+        
+        # إجبار account_status دائماً على true في general_info
+        g = profile_obj.get("general_info")
+        if isinstance(g, dict):
+            g["account_status"] = True
+            g["accountStatus"] = True
+            
         return profile_obj
     except Exception:
         return profile_obj
@@ -847,6 +855,14 @@ def get_doctor_profile_by_id(doctor_id: int):
             obj = json.loads(r.profile_json) if r.profile_json else {}
         except Exception:
             obj = {}
+        
+        # تطبيع account_status ليكون دائماً true
+        if isinstance(obj, dict):
+            g = obj.get("general_info")
+            if isinstance(g, dict):
+                g["account_status"] = True
+                g["accountStatus"] = True
+        
         return obj
     finally:
         db.close()

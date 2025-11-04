@@ -70,6 +70,7 @@ DEFAULT_PROFILE = {
         "experience_years": "0",
         "clinic_states": "",
         "accountStatus": True,
+        "account_status": True,
     },
     "specializations": ["General"],
     "clinic_phone_number": {"phone_1": "", "phone_2": "", "phone_3": ""},
@@ -419,6 +420,14 @@ def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret)
         profile = json.loads(r.profile_json) if r.profile_json else DEFAULT_PROFILE
     except Exception:
         profile = DEFAULT_PROFILE
+    
+    # تطبيع account_status ليكون دائماً true
+    if isinstance(profile, dict):
+        g = profile.get("general_info")
+        if isinstance(g, dict):
+            g["account_status"] = True
+            g["accountStatus"] = True
+    
     # account block
     acc = {
         "email": r.email,
@@ -478,6 +487,14 @@ def get_doctor_profile_api(doctor_id: int, secret_ok: None = Depends(require_pro
         profile = json.loads(r.profile_json) if r.profile_json else DEFAULT_PROFILE
     except Exception:
         profile = DEFAULT_PROFILE
+    
+    # تطبيع account_status ليكون دائماً true
+    if isinstance(profile, dict):
+        g = profile.get("general_info")
+        if isinstance(g, dict):
+            g["account_status"] = True
+            g["accountStatus"] = True
+    
     acc = {"email": r.email, "phone": r.phone, "status": r.status}
     profile_out: Dict[str, Any] = {}
     if isinstance(profile, dict):
