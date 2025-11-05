@@ -246,11 +246,13 @@ def patient_golden_booking(
     
     # البحث عن حجز ملغى لنفس المريض في نفس التاريخ
     cancelled_booking_idx = None
+    cancelled_booking_token = None
     for idx, p in enumerate(patients):
         if (isinstance(p, dict) and 
             p.get("patient_id") == payload.patient_id and 
             p.get("status") in ("ملغى", "cancelled")):
             cancelled_booking_idx = idx
+            cancelled_booking_token = p.get("token")  # نحفظ التوكن القديم
             break
     
     # جمع الأكواد الموجودة حالياً لليوم (نستثني الحجز الملغى إن وُجد)
@@ -262,8 +264,11 @@ def patient_golden_booking(
     # توليد كود فريد
     new_code = _generate_unique_code(existing_codes)
     
-    # حساب التوكن التالي
-    next_token = max([p.get("token", 0) for p in patients if isinstance(p, dict)], default=0) + 1
+    # حساب التوكن: إذا وجدنا حجز ملغى نستخدم توكنه، وإلا نأخذ التوكن التالي
+    if cancelled_booking_token is not None:
+        next_token = cancelled_booking_token  # نعيد استخدام نفس التوكن
+    else:
+        next_token = max([p.get("token", 0) for p in patients if isinstance(p, dict)], default=0) + 1
     
     # تاريخ الحجز بصيغة ISO
     date_compact = final_date.replace("-", "")  # YYYYMMDD
