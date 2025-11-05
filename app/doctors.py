@@ -182,7 +182,7 @@ def list_doctors(
     expMin: Optional[int] = None,
     expMax: Optional[int] = None,
     page: int = 1,
-    pageSize: int = 20,
+    pageSize: int = 100,  # زيادة الافتراضي إلى 100
     sort: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
@@ -196,7 +196,7 @@ def list_doctors(
     
     _ensure_seed(db)
     page = max(1, page)
-    pageSize = max(1, min(pageSize, 100))
+    pageSize = max(1, min(pageSize, 500))  # زيادة الحد الأقصى إلى 500
 
     query = db.query(models.Doctor)
     if q:
@@ -808,6 +808,78 @@ def create_secretary_code(
             status_code=500,
             detail=f"Failed to create secretary code: {str(e)}"
         )
+
+
+@router.post("/cleanup_test_doctors")
+def cleanup_test_doctors(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """حذف البيانات التجريبية من قاعدة البيانات"""
+    
+    test_ids_to_delete = []
+    
+    # 1. حذف الأسماء التجريبية الواضحة
+    test_names = [
+        'xxx', 'aaaa', 'ewew', 'zzz', 'sss', 'ssss', 'eded', 'wewe', 'ed', 'wee',
+        'gtgt', 'dwd', 'dfddf', 'sefew', 'tg', 'fdef', 'sssq', 'qwqw', 'wdwd',
+        '3erf', 'sdfef', 'dfd', 'gfb', 'wrfwrf', 'werfwefr', 'werfwerf', 'eewf',
+        'sd', 'efe', 'ewf', 'sdrf', 'fg', 'erfv', 'wfwerf', 'ewfwe', 'ewfd',
+        'hfenn', 'redgerg', 'fwef', 'Mah', 'Muthmuth', 'ef', 'wefwe', 'X',
+        'aaaaa', 'rreg', 'ssws', 'Doctor', 'dsfdsf', 'rwefwerf', 'sabah'
+    ]
+    
+    for name in test_names:
+        doctors = db.query(models.Doctor).filter(models.Doctor.name == name).all()
+        for d in doctors:
+            test_ids_to_delete.append(d.id)
+    
+    # 2. حذف Dr. Test المكررة (نحتفظ بأول واحدة فقط)
+    dr_test = db.query(models.Doctor).filter(models.Doctor.name == "Dr. Test").all()
+    if len(dr_test) > 1:
+        for d in dr_test[1:]:
+            test_ids_to_delete.append(d.id)
+    
+    # 3. حذف Dr. Dareen المكررة (نحتفظ بأول واحدة فقط)
+    dr_dareen = db.query(models.Doctor).filter(models.Doctor.name == "Dr. Dareen").all()
+    if len(dr_dareen) > 1:
+        for d in dr_dareen[1:]:
+            test_ids_to_delete.append(d.id)
+    
+    # 4. حذف أحمد كامل المكرر
+    ahmad = db.query(models.Doctor).filter(models.Doctor.name == "أحمد كامل").all()
+    if len(ahmad) > 1:
+        for d in ahmad[1:]:
+            test_ids_to_delete.append(d.id)
+    
+    # 5. حذف test IDs المعروفة
+    test_ids = [90, 91, 62, 7000, 7777, 8888, 9999, 400, 500, 408, 409, 83]
+    for tid in test_ids:
+        if tid not in test_ids_to_delete:
+            test_ids_to_delete.append(tid)
+    
+    # تنفيذ الحذف
+    deleted_count = 0
+    for tid in set(test_ids_to_delete):  # استخدام set لتجنب التكرار
+        count = db.query(models.Doctor).filter(models.Doctor.id == tid).delete()
+        deleted_count += count
+    
+    db.commit()
+    
+    # مسح الكاش
+    cache.delete_pattern("doctors:*")
+    
+    # الإحصائيات النهائية
+    total = db.query(models.Doctor).count()
+    active = db.query(models.Doctor).filter(models.Doctor.status == "active").count()
+    
+    return {
+        "status": "success",
+        "deleted": deleted_count,
+        "remaining_total": total,
+        "remaining_active": active,
+        "remaining_inactive": total - active
+    }
 
 
 
