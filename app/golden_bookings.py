@@ -244,18 +244,23 @@ def patient_golden_booking(
     capacity_total = day_obj.get("capacity_total", 5)
     capacity_used = day_obj.get("capacity_used", 0)
     
-    # البحث عن حجز ملغى لنفس المريض في نفس التاريخ
+    # البحث عن أي حجز ملغى (لأي مريض) لإعادة استخدام مكانه
+    # نبحث عن أصغر توكن ملغى لملء الفراغات بالترتيب
     cancelled_booking_idx = None
     cancelled_booking_token = None
-    for idx, p in enumerate(patients):
-        if (isinstance(p, dict) and 
-            p.get("patient_id") == payload.patient_id and 
-            p.get("status") in ("ملغى", "cancelled")):
-            cancelled_booking_idx = idx
-            cancelled_booking_token = p.get("token")  # نحفظ التوكن القديم
-            break
     
-    # جمع الأكواد الموجودة حالياً لليوم (نستثني الحجز الملغى إن وُجد)
+    cancelled_bookings = []
+    for idx, p in enumerate(patients):
+        if isinstance(p, dict) and p.get("status") in ("ملغى", "cancelled"):
+            cancelled_bookings.append((idx, p.get("token", 999999)))
+    
+    # إذا وجدنا حجوزات ملغاة، نأخذ الحجز بأصغر توكن (لملء الفراغات بالترتيب)
+    if cancelled_bookings:
+        cancelled_bookings.sort(key=lambda x: x[1])  # ترتيب حسب التوكن
+        cancelled_booking_idx = cancelled_bookings[0][0]
+        cancelled_booking_token = cancelled_bookings[0][1]
+    
+    # جمع الأكواد الموجودة حالياً لليوم (نستثني الحجز الملغى الذي سنستبدله)
     existing_codes = {
         p.get("code") for i, p in enumerate(patients) 
         if isinstance(p, dict) and p.get("code") and i != cancelled_booking_idx
@@ -266,7 +271,7 @@ def patient_golden_booking(
     
     # حساب التوكن: إذا وجدنا حجز ملغى نستخدم توكنه، وإلا نأخذ التوكن التالي
     if cancelled_booking_token is not None:
-        next_token = cancelled_booking_token  # نعيد استخدام نفس التوكن
+        next_token = cancelled_booking_token  # نعيد استخدام التوكن الملغى
     else:
         next_token = max([p.get("token", 0) for p in patients if isinstance(p, dict)], default=0) + 1
     
