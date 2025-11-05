@@ -860,6 +860,13 @@ def get_doctor_profile_by_id(doctor_id: int):
             g = obj.get("general_info")
             if isinstance(g, dict):
                 g.pop("accountStatus", None)
+            
+            # إضافة account block
+            obj["account"] = {
+                "email": r.email,
+                "phone": r.phone,
+                "status": r.status
+            }
         
         return obj
     finally:

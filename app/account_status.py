@@ -5,6 +5,7 @@ Endpoints للتحكم في حالة تفعيل الدكاترة والمرضى
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+import json
 from .database import SessionLocal
 from . import models
 from .doctors import require_profile_secret
@@ -56,14 +57,34 @@ def update_doctor_status(
     تغيير حالة تفعيل الدكتور
     - doctor_id: رقم الدكتور من جدول doctors
     - is_active: true للتفعيل، false للإيقاف
+    يحدث الحالة في:
+    1. حقل status في جدول doctors
+    2. حقل account_status في profile_json
     """
     doctor = db.query(models.Doctor).filter_by(id=payload.doctor_id).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="doctor not found")
     
-    # تحديث الحالة
+    # تحديث الحالة في جدول doctors
     new_status = "active" if payload.is_active else "inactive"
     doctor.status = new_status
+    
+    # تحديث account_status في profile_json
+    if doctor.profile_json:
+        try:
+            profile = json.loads(doctor.profile_json)
+            if isinstance(profile, dict):
+                general_info = profile.get("general_info", {})
+                if isinstance(general_info, dict):
+                    general_info["account_status"] = payload.is_active
+                    # حذف accountStatus المكرر إن وجد
+                    general_info.pop("accountStatus", None)
+                    profile["general_info"] = general_info
+                    doctor.profile_json = json.dumps(profile, ensure_ascii=False)
+        except Exception as e:
+            # في حالة فشل تحديث JSON، نكمل بتحديث status فقط
+            pass
+    
     db.commit()
     db.refresh(doctor)
     
