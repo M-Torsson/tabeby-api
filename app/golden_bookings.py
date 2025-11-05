@@ -161,13 +161,15 @@ def patient_golden_booking(
                     detail=f"اليوم {date_str} ممتلئ ({capacity_used}/{capacity_total}). جرب تاريخاً آخر أو استخدم auto_assign=true"
                 )
             
-            # التحقق من عدم تكرار patient_id
+            # التحقق من عدم تكرار patient_id (نتجاهل الحجوزات الملغاة)
             patients = day_obj.get("patients", [])
             if not isinstance(patients, list):
                 patients = []
             
             is_duplicate = any(
-                isinstance(p, dict) and p.get("patient_id") == payload.patient_id 
+                isinstance(p, dict) and 
+                p.get("patient_id") == payload.patient_id and
+                p.get("status") not in ("ملغى", "cancelled")
                 for p in patients
             )
             
@@ -196,13 +198,15 @@ def patient_golden_booking(
                     
                     # إذا كان هناك مكان متاح
                     if capacity_used < capacity_total:
-                        # التحقق من عدم تكرار patient_id
+                        # التحقق من عدم تكرار patient_id (نتجاهل الحجوزات الملغاة)
                         patients = day_obj.get("patients", [])
                         if not isinstance(patients, list):
                             patients = []
                         
                         is_duplicate = any(
-                            isinstance(p, dict) and p.get("patient_id") == payload.patient_id 
+                            isinstance(p, dict) and 
+                            p.get("patient_id") == payload.patient_id and
+                            p.get("status") not in ("ملغى", "cancelled")
                             for p in patients
                         )
                         
@@ -240,8 +244,20 @@ def patient_golden_booking(
     capacity_total = day_obj.get("capacity_total", 5)
     capacity_used = day_obj.get("capacity_used", 0)
     
-    # جمع الأكواد الموجودة حالياً لليوم
-    existing_codes = {p.get("code") for p in patients if isinstance(p, dict) and p.get("code")}
+    # البحث عن حجز ملغى لنفس المريض في نفس التاريخ
+    cancelled_booking_idx = None
+    for idx, p in enumerate(patients):
+        if (isinstance(p, dict) and 
+            p.get("patient_id") == payload.patient_id and 
+            p.get("status") in ("ملغى", "cancelled")):
+            cancelled_booking_idx = idx
+            break
+    
+    # جمع الأكواد الموجودة حالياً لليوم (نستثني الحجز الملغى إن وُجد)
+    existing_codes = {
+        p.get("code") for i, p in enumerate(patients) 
+        if isinstance(p, dict) and p.get("code") and i != cancelled_booking_idx
+    }
     
     # توليد كود فريد
     new_code = _generate_unique_code(existing_codes)
@@ -266,9 +282,16 @@ def patient_golden_booking(
         "created_at": created_at
     }
     
-    patients.append(patient_entry)
+    # إذا وجدنا حجز ملغى، نستبدله بالحجز الجديد
+    if cancelled_booking_idx is not None:
+        patients[cancelled_booking_idx] = patient_entry
+        # لا نزيد capacity_used لأننا استبدلنا حجز موجود
+    else:
+        # حجز جديد، نضيفه للقائمة
+        patients.append(patient_entry)
+        day_obj["capacity_used"] = capacity_used + 1
+    
     day_obj["patients"] = patients
-    day_obj["capacity_used"] = capacity_used + 1
     
     days[final_date] = day_obj
     gt.days_json = json.dumps(days, ensure_ascii=False)
