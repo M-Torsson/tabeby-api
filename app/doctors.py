@@ -69,7 +69,6 @@ DEFAULT_PROFILE = {
         "doctor_phone_number": "",
         "experience_years": "0",
         "clinic_states": "",
-        "accountStatus": True,
         "account_status": True,
     },
     "specializations": ["General"],
@@ -421,12 +420,12 @@ def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret)
     except Exception:
         profile = DEFAULT_PROFILE
     
-    # تطبيع account_status ليكون دائماً true
+    # تطبيع account_status ليكون دائماً true وحذف accountStatus المكرر
     if isinstance(profile, dict):
         g = profile.get("general_info")
         if isinstance(g, dict):
             g["account_status"] = True
-            g["accountStatus"] = True
+            g.pop("accountStatus", None)
     
     # account block
     acc = {
@@ -488,12 +487,12 @@ def get_doctor_profile_api(doctor_id: int, secret_ok: None = Depends(require_pro
     except Exception:
         profile = DEFAULT_PROFILE
     
-    # تطبيع account_status ليكون دائماً true
+    # تطبيع account_status ليكون دائماً true وحذف accountStatus المكرر
     if isinstance(profile, dict):
         g = profile.get("general_info")
         if isinstance(g, dict):
             g["account_status"] = True
-            g["accountStatus"] = True
+            g.pop("accountStatus", None)
     
     acc = {"email": r.email, "phone": r.phone, "status": r.status}
     profile_out: Dict[str, Any] = {}
