@@ -420,11 +420,10 @@ def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret)
     except Exception:
         profile = DEFAULT_PROFILE
     
-    # تطبيع account_status ليكون دائماً true وحذف accountStatus المكرر
+    # حذف accountStatus المكرر فقط، نحتفظ بـ account_status كما هو مخزن
     if isinstance(profile, dict):
         g = profile.get("general_info")
         if isinstance(g, dict):
-            g["account_status"] = True
             g.pop("accountStatus", None)
     
     # account block
@@ -487,11 +486,10 @@ def get_doctor_profile_api(doctor_id: int, secret_ok: None = Depends(require_pro
     except Exception:
         profile = DEFAULT_PROFILE
     
-    # تطبيع account_status ليكون دائماً true وحذف accountStatus المكرر
+    # حذف accountStatus المكرر فقط، نحتفظ بـ account_status كما هو مخزن
     if isinstance(profile, dict):
         g = profile.get("general_info")
         if isinstance(g, dict):
-            g["account_status"] = True
             g.pop("accountStatus", None)
     
     acc = {"email": r.email, "phone": r.phone, "status": r.status}

@@ -619,7 +619,7 @@ RAW_DOCTOR_PROFILE_JSON = r"""{
 
 # تحويل شكل الحقل clinic_waiting_time من الشكل القديم { value: "..." }
 # إلى الشكل الجديد { id: 3, name: "15 دقيقة" }
-# وإجبار account_status على true دائماً وحذف accountStatus المكرر
+# وحذف accountStatus المكرر - نحتفظ بقيمة account_status كما أرسلها الفرونت اند
 def _normalize_clinic_waiting_time(profile_obj: Dict[str, Any]) -> Dict[str, Any]:
     try:
         if not isinstance(profile_obj, dict):
@@ -630,11 +630,9 @@ def _normalize_clinic_waiting_time(profile_obj: Dict[str, Any]) -> Dict[str, Any
             if "value" in cwt and ("id" not in cwt and "name" not in cwt):
                 profile_obj["clinic_waiting_time"] = {"id": 3, "name": "15 دقيقة"}
         
-        # إجبار account_status دائماً على true وحذف accountStatus المكرر
+        # حذف accountStatus المكرر فقط، نحتفظ بـ account_status كما أرسله الفرونت اند
         g = profile_obj.get("general_info")
         if isinstance(g, dict):
-            g["account_status"] = True
-            # حذف accountStatus المكرر
             g.pop("accountStatus", None)
             
         return profile_obj
@@ -732,19 +730,19 @@ async def post_doctor_profile_raw(request: Request):
             # 4) إنشاء/تحديث الطبيب بمعرّف = clinic_id
             row = db.query(models.Doctor).filter_by(id=clinic_id).first()
             if row:
-                # تحديث - نحافظ على status الموجود ولا نغيره من البروفايل
+                # تحديث - نحدث status من البروفايل
                 row.name = den.get("name") or row.name or "Doctor"
                 row.email = den.get("email")
                 row.phone = den.get("phone")
                 row.experience_years = den.get("experience_years")
                 row.patients_count = den.get("patients_count")
-                # لا نحدّث status من البروفايل - فقط عبر endpoint /api/doctor/status
+                row.status = den.get("status") or row.status
                 row.specialty = den.get("specialty")
                 row.clinic_state = den.get("clinic_state")
                 row.profile_json = prof_raw
                 db.commit()
             else:
-                # إنشاء طبيب جديد - دائماً active في التسجيل الأول
+                # إنشاء طبيب جديد - status يؤخذ من البروفايل (inactive إذا account_status=false)
                 row = models.Doctor(
                     id=clinic_id,
                     name=den.get("name") or "Doctor",
@@ -752,7 +750,7 @@ async def post_doctor_profile_raw(request: Request):
                     phone=den.get("phone"),
                     experience_years=den.get("experience_years"),
                     patients_count=den.get("patients_count"),
-                    status="active",  # دائماً مفعّل عند التسجيل الأول
+                    status=den.get("status") or "inactive",  # يؤخذ من account_status في البروفايل
                     specialty=den.get("specialty"),
                     clinic_state=den.get("clinic_state"),
                     profile_json=prof_raw,
@@ -799,19 +797,19 @@ async def post_doctor_profile_raw(request: Request):
             return Response(content=json.dumps({"error": {"code": "bad_request", "message": "clinic_id is required in general_info"}}, ensure_ascii=False), media_type="application/json", status_code=400)
         row = db.query(models.Doctor).filter_by(id=clinic_id).first()
         if row:
-            # تحديث - نحافظ على status الموجود ولا نغيره من البروفايل
+            # تحديث - نحدث status من البروفايل
             row.name = den.get("name") or row.name or "Doctor"
             row.email = den.get("email")
             row.phone = den.get("phone")
             row.experience_years = den.get("experience_years")
             row.patients_count = den.get("patients_count")
-            # لا نحدّث status من البروفايل - فقط عبر endpoint /api/doctor/status
+            row.status = den.get("status") or row.status
             row.specialty = den.get("specialty")
             row.clinic_state = den.get("clinic_state")
             row.profile_json = normalized_text
             db.commit()
         else:
-            # إنشاء طبيب جديد - دائماً active في التسجيل الأول
+            # إنشاء طبيب جديد - status يؤخذ من البروفايل
             row = models.Doctor(
                 id=clinic_id,
                 name=den.get("name") or "Doctor",
@@ -819,7 +817,7 @@ async def post_doctor_profile_raw(request: Request):
                 phone=den.get("phone"),
                 experience_years=den.get("experience_years"),
                 patients_count=den.get("patients_count"),
-                status="active",  # دائماً مفعّل عند التسجيل الأول
+                status=den.get("status") or "inactive",  # يؤخذ من account_status في البروفايل
                 specialty=den.get("specialty"),
                 clinic_state=den.get("clinic_state"),
                 profile_json=normalized_text,
@@ -857,11 +855,10 @@ def get_doctor_profile_by_id(doctor_id: int):
         except Exception:
             obj = {}
         
-        # تطبيع account_status ليكون دائماً true وحذف accountStatus المكرر
+        # حذف accountStatus المكرر فقط، نحتفظ بـ account_status كما هو مخزن
         if isinstance(obj, dict):
             g = obj.get("general_info")
             if isinstance(g, dict):
-                g["account_status"] = True
                 g.pop("accountStatus", None)
         
         return obj
