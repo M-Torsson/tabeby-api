@@ -758,7 +758,17 @@ def edit_patient_gold_booking(
     if target_index is None:
         raise HTTPException(status_code=404, detail="الحجز الذهبي غير موجود داخل هذا التاريخ")
 
-    plist[target_index]["status"] = normalized_status
+    # إذا الحالة صارت "ملغى" أو "الغاء الحجز"، نحذف الحجز من JSON بدلاً من تحديث status
+    cancellation_statuses = ["ملغى", "الغاء الحجز", "cancelled"]
+    if normalized_status in cancellation_statuses:
+        # حذف المريض من القائمة
+        plist.pop(target_index)
+        # تحديث capacity_used
+        day_obj["capacity_used"] = max(0, day_obj.get("capacity_used", 0) - 1)
+    else:
+        # تحديث الحالة فقط
+        plist[target_index]["status"] = normalized_status
+    
     day_obj["patients"] = plist
     days[date_key] = day_obj
 
