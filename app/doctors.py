@@ -724,11 +724,12 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
             # else: keep specs_full as-is
 
         # Build item in required key order
+        # Read actual status from doctor.status column (not forced to "active")
+        actual_status = r.status if r.status else "active"
         item: Dict[str, Any] = {
             "clinic_id": cid,
             "doctor_name": dname,
-                # Force status to active in clinics listing per request
-                "status": "active",
+            "status": actual_status,
         }
         if img_url:
             item["profile_image_URL"] = img_url
