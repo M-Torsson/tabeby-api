@@ -369,3 +369,17 @@ class GoldenPayment(Base):
     __table_args__ = (
         Index("ix_golden_payments_clinic_month", "clinic_id", "payment_month"),
     )
+
+
+# ===== App Maintenance Mode =====
+
+class AppMaintenance(Base):
+    """جدول لإدارة وضع الصيانة للتطبيق"""
+    __tablename__ = "app_maintenance"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    is_active = Column(Boolean, default=False, nullable=False, index=True)
+    message_ar = Column(Text, nullable=True)  # الرسالة بالعربي
+    message_en = Column(Text, nullable=True)  # الرسالة بالإنجليزي
+    updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
+    updated_by = Column(String, nullable=True)  # من قام بالتحديث
