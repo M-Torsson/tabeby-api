@@ -199,7 +199,7 @@ def toggle_secretary_status(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    """تغيير حالة السكرتير - يقبل S-{secretary_code} أو {secretary_code}"""
+    """تغيير حالة السكرتير - يقبل int أو string"""
     secretary_formatted_id = payload.get("secretary_id")
     secretary_status = payload.get("secretary_status")
     
@@ -209,17 +209,22 @@ def toggle_secretary_status(
     if secretary_status is None or not isinstance(secretary_status, bool):
         raise HTTPException(status_code=400, detail="secretary_status must be true or false")
     
-    # Parse secretary code from both formats
-    if secretary_formatted_id.startswith("S-"):
-        try:
-            secretary_code = int(secretary_formatted_id.split("-")[1])
-        except (IndexError, ValueError):
-            raise HTTPException(status_code=400, detail="Invalid secretary_id format")
+    # Parse secretary code - accept both int and string formats
+    if isinstance(secretary_formatted_id, int):
+        secretary_code = secretary_formatted_id
+    elif isinstance(secretary_formatted_id, str):
+        if secretary_formatted_id.startswith("S-"):
+            try:
+                secretary_code = int(secretary_formatted_id.split("-")[1])
+            except (IndexError, ValueError):
+                raise HTTPException(status_code=400, detail="Invalid secretary_id format")
+        else:
+            try:
+                secretary_code = int(secretary_formatted_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid secretary_id format")
     else:
-        try:
-            secretary_code = int(secretary_formatted_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid secretary_id format")
+        raise HTTPException(status_code=400, detail="secretary_id must be int or string")
     
     # Lookup by secretary_id (activation code)
     secretary = db.query(models.Secretary).filter_by(secretary_id=secretary_code).first()
