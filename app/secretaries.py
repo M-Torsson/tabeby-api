@@ -160,45 +160,31 @@ def get_secretary_info(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    """الحصول على معلومات السكرتير - يقبل S-{clinic_id} أو {secretary_code}"""
+    """الحصول على معلومات السكرتير - يقبل S-{secretary_code} أو {secretary_code}"""
     
-    # Check if it's S-{clinic_id} format (e.g., S-5, S-10)
+    # Parse secretary code from both formats
     if secretary_formatted_id.startswith("S-"):
         try:
-            clinic_id = int(secretary_formatted_id.split("-")[1])
+            secretary_code = int(secretary_formatted_id.split("-")[1])
         except (IndexError, ValueError):
             raise HTTPException(status_code=400, detail="Invalid secretary_id format")
-        
-        # Get all secretaries for this clinic
-        secretaries = db.query(models.Secretary).filter_by(clinic_id=clinic_id).all()
-        
-        if not secretaries:
-            raise HTTPException(status_code=404, detail=f"No secretary found for clinic {clinic_id}")
-        
-        # Prefer active secretary, otherwise return first one
-        secretary = None
-        for s in secretaries:
-            if hasattr(s, 'is_active') and s.is_active:
-                secretary = s
-                break
-        
-        if not secretary:
-            secretary = secretaries[0]  # fallback to first secretary
-    
     else:
-        # Direct secretary_code lookup (6-digit code)
         try:
             secretary_code = int(secretary_formatted_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid secretary_id format")
-        
-        secretary = db.query(models.Secretary).filter_by(secretary_id=secretary_code).first()
-        
-        if not secretary:
-            raise HTTPException(status_code=404, detail=f"Secretary not found")
+    
+    # Lookup by secretary_id (activation code)
+    secretary = db.query(models.Secretary).filter_by(secretary_id=secretary_code).first()
+    
+    if not secretary:
+        raise HTTPException(status_code=404, detail=f"Secretary not found")
+    
+    # Format secretary_id as S-{clinic_id}
+    formatted_id = f"S-{secretary.clinic_id}"
     
     return {
-        "secretary_id": secretary_formatted_id,
+        "secretary_id": formatted_id,
         "active_code": secretary.secretary_id,
         "created_date": secretary.created_date,
         "secretary_status": secretary.is_active if hasattr(secretary, 'is_active') else True
@@ -211,7 +197,7 @@ def toggle_secretary_status(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    """تغيير حالة السكرتير - يقبل S-{clinic_id} أو {secretary_code}"""
+    """تغيير حالة السكرتير - يقبل S-{secretary_code} أو {secretary_code}"""
     secretary_formatted_id = payload.get("secretary_id")
     secretary_status = payload.get("secretary_status")
     
@@ -221,45 +207,23 @@ def toggle_secretary_status(
     if secretary_status is None or not isinstance(secretary_status, bool):
         raise HTTPException(status_code=400, detail="secretary_status must be true or false")
     
-    # Check if it's S-{clinic_id} format
+    # Parse secretary code from both formats
     if secretary_formatted_id.startswith("S-"):
         try:
-            clinic_id = int(secretary_formatted_id.split("-")[1])
+            secretary_code = int(secretary_formatted_id.split("-")[1])
         except (IndexError, ValueError):
             raise HTTPException(status_code=400, detail="Invalid secretary_id format")
-        
-        # Get all secretaries for this clinic
-        secretaries = db.query(models.Secretary).filter_by(clinic_id=clinic_id).all()
-        
-        if not secretaries:
-            raise HTTPException(status_code=404, detail=f"No secretary found for clinic {clinic_id}")
-        
-        # Toggle all secretaries for this clinic
-        for sec in secretaries:
-            if hasattr(sec, 'is_active'):
-                sec.is_active = secretary_status
-        
-        db.commit()
-        
-        action = "تفعيل" if secretary_status else "تعطيل"
-        return {
-            "message": f"تم {action} {len(secretaries)} سكرتير للعيادة {clinic_id}",
-            "secretary_id": secretary_formatted_id,
-            "count": len(secretaries),
-            "secretary_status": secretary_status
-        }
-    
     else:
-        # Direct secretary_code lookup
         try:
             secretary_code = int(secretary_formatted_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid secretary_id format")
-        
-        secretary = db.query(models.Secretary).filter_by(secretary_id=secretary_code).first()
-        
-        if not secretary:
-            raise HTTPException(status_code=404, detail=f"Secretary not found")
+    
+    # Lookup by secretary_id (activation code)
+    secretary = db.query(models.Secretary).filter_by(secretary_id=secretary_code).first()
+    
+    if not secretary:
+        raise HTTPException(status_code=404, detail=f"Secretary not found")
     
     if not hasattr(secretary, 'is_active'):
         raise HTTPException(status_code=500, detail="is_active column not found. Please run migration.")
