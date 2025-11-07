@@ -76,12 +76,14 @@ def toggle_maintenance_mode(
 
 
 @router.get("/maintenance/status", response_model=MaintenanceStatusResponse)
-def get_maintenance_status(db: Session = Depends(get_db)):
+def get_maintenance_status(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
     """
     الحصول على حالة الصيانة الحالية
     
-    هذا الـ endpoint عام (لا يتطلب Authentication)
-    يستخدمه التطبيق لفحص حالة الصيانة قبل تحميل الواجهة
+    يتطلب Doctor-Secret للوصول
     
     الرد دائماً:
     {
