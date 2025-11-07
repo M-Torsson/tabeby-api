@@ -238,8 +238,7 @@ def toggle_secretary_status(
     
     return {
         "message": f"تم {action} السكرتير بنجاح",
-        "secretary_id": secretary_formatted_id,
+        "secretary_id": secretary.secretary_id,
         "clinic_id": secretary.clinic_id,
-        "active_code": secretary.secretary_id,
         "secretary_status": secretary.is_active
     }
