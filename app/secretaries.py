@@ -185,6 +185,7 @@ def get_secretary_info(
     
     return {
         "secretary_id": formatted_id,
+        "clinic_id": secretary.clinic_id,
         "active_code": secretary.secretary_id,
         "created_date": secretary.created_date,
         "secretary_status": secretary.is_active if hasattr(secretary, 'is_active') else True
