@@ -245,6 +245,7 @@ class Secretary(Base):
     doctor_name = Column(String, nullable=False)
     secretary_name = Column(String, nullable=False)
     created_date = Column(String, nullable=False)  # storing as string as per API spec
+    is_active = Column(Boolean, default=True, nullable=False, index=True)  # حالة تفعيل السكرتير
     created_at = Column(DateTime, default=now_utc_for_storage)
 
 

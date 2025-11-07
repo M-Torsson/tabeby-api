@@ -52,6 +52,13 @@ def secretary_login_code(
                 detail="Secretary code not found"
             )
         
+        # Check if secretary is active
+        if hasattr(secretary, 'is_active') and not secretary.is_active:
+            raise HTTPException(
+                status_code=403,
+                detail="Secretary account is disabled by doctor"
+            )
+        
         # Generate secretary_id in format "S-{clinic_id}"
         formatted_secretary_id = f"S-{secretary.clinic_id}"
 
@@ -146,3 +153,76 @@ def secretary_login_code(
             status_code=500,
             detail=f"Failed to process secretary login: {str(e)}"
         )
+
+@router.get("/doctor/secretary/{secretary_formatted_id}")
+def get_secretary_info(
+    secretary_formatted_id: str,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """الحصول على معلومات السكرتير"""
+    if not secretary_formatted_id.startswith("S-"):
+        raise HTTPException(status_code=400, detail="Invalid secretary_id format")
+    
+    try:
+        clinic_id = int(secretary_formatted_id.split("-")[1])
+    except (IndexError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid secretary_id format")
+    
+    secretary = db.query(models.Secretary).filter_by(clinic_id=clinic_id).first()
+    
+    if not secretary:
+        raise HTTPException(status_code=404, detail=f"Secretary not found")
+    
+    return {
+        "secretary_id": secretary_formatted_id,
+        "active_code": secretary.secretary_id,
+        "created_date": secretary.created_date,
+        "secretary_status": secretary.is_active if hasattr(secretary, 'is_active') else True
+    }
+
+
+@router.post("/doctor/secretary/toggle-status")
+def toggle_secretary_status(
+    payload: dict,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret)
+):
+    """تغيير حالة السكرتير"""
+    secretary_formatted_id = payload.get("secretary_id")
+    secretary_status = payload.get("secretary_status")
+    
+    if not secretary_formatted_id:
+        raise HTTPException(status_code=400, detail="secretary_id is required")
+    
+    if secretary_status is None or not isinstance(secretary_status, bool):
+        raise HTTPException(status_code=400, detail="secretary_status must be true or false")
+    
+    if not secretary_formatted_id.startswith("S-"):
+        raise HTTPException(status_code=400, detail="Invalid secretary_id format")
+    
+    try:
+        clinic_id = int(secretary_formatted_id.split("-")[1])
+    except (IndexError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid secretary_id format")
+    
+    secretary = db.query(models.Secretary).filter_by(clinic_id=clinic_id).first()
+    
+    if not secretary:
+        raise HTTPException(status_code=404, detail=f"Secretary not found")
+    
+    if not hasattr(secretary, 'is_active'):
+        raise HTTPException(status_code=500, detail="is_active column not found. Please run migration.")
+    
+    secretary.is_active = secretary_status
+    db.commit()
+    db.refresh(secretary)
+    
+    action = "تفعيل" if secretary_status else "تعطيل"
+    
+    return {
+        "message": f"تم {action} السكرتير بنجاح",
+        "secretary_id": secretary_formatted_id,
+        "active_code": secretary.secretary_id,
+        "secretary_status": secretary.is_active
+    }
