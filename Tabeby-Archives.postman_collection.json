@@ -1,0 +1,186 @@
+{
+  "info": {
+    "name": "Tabeby API - Archives System",
+    "description": "مجموعة طلبات API لنظام الأرشفة التلقائية للحجوزات",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://tabeby-api.onrender.com",
+      "type": "string"
+    },
+    {
+      "key": "clinic_id",
+      "value": "4",
+      "type": "string"
+    },
+    {
+      "key": "doctor_secret",
+      "value": "your-secret-here",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "الحجوزات العادية",
+      "item": [
+        {
+          "name": "عرض جميع الحجوزات الحالية",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/booking_days?clinic_id={{clinic_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "booking_days"],
+              "query": [
+                {
+                  "key": "clinic_id",
+                  "value": "{{clinic_id}}",
+                  "description": "معرف العيادة"
+                }
+              ]
+            },
+            "description": "عرض جميع الحجوزات الحالية (اليوم والمستقبل فقط بعد الأرشفة)\n\nبعد الساعة 12 ليلاً، ستلاحظ أن الأيام القديمة اختفت وانتقلت للأرشيف."
+          },
+          "response": []
+        },
+        {
+          "name": "عرض أرشيف الحجوزات",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Doctor-Secret",
+                "value": "{{doctor_secret}}",
+                "type": "text",
+                "description": "مفتاح الأمان للوصول إلى الأرشيف"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/booking_archives/{{clinic_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "booking_archives", "{{clinic_id}}"]
+            },
+            "description": "عرض جميع الحجوزات المؤرشفة (الأيام القديمة)\n\nيتطلب Doctor-Secret في الـ Header"
+          },
+          "response": []
+        },
+        {
+          "name": "أرشيف الحجوزات مع فلترة بالتاريخ",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Doctor-Secret",
+                "value": "{{doctor_secret}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/booking_archives/{{clinic_id}}?from_date=2025-11-10&to_date=2025-11-12",
+              "host": ["{{base_url}}"],
+              "path": ["api", "booking_archives", "{{clinic_id}}"],
+              "query": [
+                {
+                  "key": "from_date",
+                  "value": "2025-11-10",
+                  "description": "من تاريخ (YYYY-MM-DD)"
+                },
+                {
+                  "key": "to_date",
+                  "value": "2025-11-12",
+                  "description": "إلى تاريخ (YYYY-MM-DD)"
+                }
+              ]
+            },
+            "description": "عرض الحجوزات المؤرشفة ضمن فترة زمنية محددة"
+          },
+          "response": []
+        }
+      ],
+      "description": "جميع endpoints المتعلقة بالحجوزات العادية وأرشيفها"
+    },
+    {
+      "name": "الحجوزات الذهبية",
+      "item": [
+        {
+          "name": "عرض الحجوزات الذهبية الحالية",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/golden_booking_days?clinic_id={{clinic_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "golden_booking_days"],
+              "query": [
+                {
+                  "key": "clinic_id",
+                  "value": "{{clinic_id}}"
+                }
+              ]
+            },
+            "description": "عرض جميع الحجوزات الذهبية الحالية"
+          },
+          "response": []
+        },
+        {
+          "name": "عرض أرشيف الحجوزات الذهبية",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Doctor-Secret",
+                "value": "{{doctor_secret}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/golden_booking_archives/{{clinic_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "golden_booking_archives", "{{clinic_id}}"]
+            },
+            "description": "عرض جميع الحجوزات الذهبية المؤرشفة"
+          },
+          "response": []
+        }
+      ],
+      "description": "جميع endpoints المتعلقة بالحجوزات الذهبية وأرشيفها"
+    },
+    {
+      "name": "معلومات النظام",
+      "item": [
+        {
+          "name": "فحص صحة API",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "فحص حالة API والاتصال بقاعدة البيانات"
+          },
+          "response": []
+        },
+        {
+          "name": "معلومات API",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": ["{{base_url}}"],
+              "path": [""]
+            },
+            "description": "عرض معلومات عامة عن API"
+          },
+          "response": []
+        }
+      ],
+      "description": "معلومات عامة وفحص صحة النظام"
+    }
+  ]
+}
