@@ -982,8 +982,6 @@ def list_booking_archives(
             patients = []
         items.append(
             schemas.BookingArchiveItem(
-                id=r.id,
-                clinic_id=r.clinic_id,
                 table_date=r.table_date,
                 capacity_total=r.capacity_total,
                 capacity_served=r.capacity_served,
@@ -996,47 +994,37 @@ def list_booking_archives(
 
 @router.get("/all_days", response_model=schemas.AllDaysResponse)
 def get_all_days(clinic_id: int, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
-    """إرجاع جميع الأيام المؤرشفة كقاموس days يشبه بنية جدول الحجز الأصلية.
+    """إرجاع جميع الأيام الحالية (غير المؤرشفة) من جدول booking_tables.
 
     الشكل:
     {
       "clinic_id": <id>,
       "days": {
-         "2025-10-04": {
-            "capacity_total": 25,
-            "capacity_served": 3,
-            "capacity_cancelled": 1,
+         "2025-11-14": {
+            "capacity_total": 600,
+            "capacity_served": 0,
+            "capacity_cancelled": 0,
+            "capacity_used": 0,
+            "status": "open",
             "patients": [...]
          },
          ...
       }
     }
     """
-    rows = (
-        db.query(models.BookingArchive)
-        .filter(models.BookingArchive.clinic_id == clinic_id)
-        .order_by(models.BookingArchive.table_date.asc())  # ترتيب تصاعدي زمني
-        .all()
-    )
-    days: dict[str, dict] = {}
-    for r in rows:
-        try:
-            patients = json.loads(r.patients_json) if r.patients_json else []
-            if not isinstance(patients, list):
-                patients = []
-        except Exception:
-            patients = []
-        # حساب capacity_used من عدد المرضى (اختياري)
-        capacity_used = len([p for p in patients if isinstance(p, dict)])
-        days[r.table_date] = {
-            "capacity_total": r.capacity_total,
-            "capacity_served": r.capacity_served,
-            "capacity_cancelled": r.capacity_cancelled,
-            "capacity_used": capacity_used,
-            # status غير مخزنة في الأرشيف حالياً؛ يمكن استنتاجها (افتراض open)
-            "status": "open",
-            "patients": patients,
-        }
+    # جلب جدول الحجوزات الحالي (غير المؤرشف)
+    bt = db.query(models.BookingTable).filter(models.BookingTable.clinic_id == clinic_id).first()
+    
+    if not bt:
+        return schemas.AllDaysResponse(clinic_id=clinic_id, days={})
+    
+    try:
+        days = json.loads(bt.days_json) if bt.days_json else {}
+        if not isinstance(days, dict):
+            days = {}
+    except Exception:
+        days = {}
+    
     return schemas.AllDaysResponse(clinic_id=clinic_id, days=days)
 
 

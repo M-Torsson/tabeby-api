@@ -880,47 +880,37 @@ def get_all_days_golden(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    """إرجاع جميع الأيام المؤرشفة من Golden Book كقاموس days.
+    """إرجاع جميع الأيام الحالية (غير المؤرشفة) من Golden Book.
 
     الشكل:
     {
       "clinic_id": <id>,
       "days": {
-         "2025-10-04": {
+         "2025-11-14": {
             "capacity_total": 5,
-            "capacity_served": 3,
-            "capacity_cancelled": 1,
+            "capacity_served": 0,
+            "capacity_cancelled": 0,
+            "capacity_used": 0,
+            "status": "open",
             "patients": [...]
          },
          ...
       }
     }
     """
-    rows = (
-        db.query(models.GoldenBookingArchive)
-        .filter(models.GoldenBookingArchive.clinic_id == clinic_id)
-        .order_by(models.GoldenBookingArchive.table_date.asc())
-        .all()
-    )
+    # جلب جدول الحجوزات الذهبية الحالي (غير المؤرشف)
+    gt = db.query(models.GoldenBookingTable).filter(
+        models.GoldenBookingTable.clinic_id == clinic_id
+    ).first()
     
-    days: dict[str, dict] = {}
-    for r in rows:
-        try:
-            patients = json.loads(r.patients_json) if r.patients_json else []
-            if not isinstance(patients, list):
-                patients = []
-        except Exception:
-            patients = []
-        
-        capacity_used = len([p for p in patients if isinstance(p, dict)])
-        
-        days[r.table_date] = {
-            "capacity_total": r.capacity_total,
-            "capacity_served": r.capacity_served,
-            "capacity_cancelled": r.capacity_cancelled,
-            "capacity_used": capacity_used,
-            "status": "open",
-            "patients": patients,
-        }
+    if not gt:
+        return schemas.AllDaysResponse(clinic_id=clinic_id, days={})
+    
+    try:
+        days = json.loads(gt.days_json) if gt.days_json else {}
+        if not isinstance(days, dict):
+            days = {}
+    except Exception:
+        days = {}
     
     return schemas.AllDaysResponse(clinic_id=clinic_id, days=days)

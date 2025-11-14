@@ -431,8 +431,6 @@ class SaveTableResponse(BaseModel):
 
 # ===== Booking Archives Fetch =====
 class BookingArchiveItem(BaseModel):
-    id: int
-    clinic_id: int
     table_date: str
     capacity_total: int
     capacity_served: int | None = None
