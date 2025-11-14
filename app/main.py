@@ -30,6 +30,7 @@ from .doctors import _denormalize_profile, _to_ascii_digits, _safe_int, require_
 from .cache import cache
 from .rate_limiter import RateLimitMiddleware
 from .timezone_middleware import IraqTimezoneMiddleware
+from .scheduler import start_scheduler, shutdown_scheduler
 import json
 import uuid
 import re
@@ -156,6 +157,13 @@ async def startup_event():
     import asyncio
     asyncio.create_task(delete_expired_ads_task())
     
+    # تشغيل المجدول للأرشفة التلقائية
+    try:
+        start_scheduler()
+        logger.info("✅ Scheduler started successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to start scheduler: {str(e)}")
+    
     # التحقق من الاتصال بقاعدة البيانات
     if check_database_connection():
         logger.info("✅ Database connection established")
@@ -176,6 +184,13 @@ async def startup_event():
 async def shutdown_event():
     """تنفيذ عند إيقاف التطبيق"""
     logger.info("🛑 Shutting down Tabeby API...")
+    
+    # إيقاف المجدول
+    try:
+        shutdown_scheduler()
+        logger.info("✅ Scheduler stopped successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to stop scheduler: {str(e)}")
     
     # إغلاق اتصالات Database
     dispose_engine()
