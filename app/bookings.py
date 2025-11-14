@@ -429,16 +429,33 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     capacity_total = int(day_obj.get("capacity_total", 20))
     capacity_used = int(day_obj.get("capacity_used", 0))
 
+    # البحث عن أول مريض ملغى لاستبداله
+    cancelled_index = None
+    cancelled_token = None
+    cancelled_booking_id = None
+    
+    for idx, p in enumerate(patients_list):
+        if isinstance(p, dict) and p.get("status") == "ملغى":
+            cancelled_index = idx
+            cancelled_token = p.get("token")
+            cancelled_booking_id = p.get("booking_id")
+            break
+    
     # حساب التوكن
-    next_token = capacity_used + 1
-
-    # توليد booking_id
-    seq = len(patients_list) + 1
-    date_compact = date_key.replace('-', '')
-    if payload.source == "secretary_app":
-        booking_id = f"S-{clinic_id}-{date_compact}-{seq:03d}"
+    if cancelled_index is not None:
+        # استبدال المريض الملغى
+        next_token = cancelled_token
+        booking_id = cancelled_booking_id
     else:
-        booking_id = f"B-{clinic_id}-{date_compact}-{seq:04d}"
+        # إنشاء token جديد
+        next_token = capacity_used + 1
+        # توليد booking_id
+        seq = len(patients_list) + 1
+        date_compact = date_key.replace('-', '')
+        if payload.source == "secretary_app":
+            booking_id = f"S-{clinic_id}-{date_compact}-{seq:03d}"
+        else:
+            booking_id = f"B-{clinic_id}-{date_compact}-{seq:04d}"
 
     # تحديد patient_id النهائي
     if payload.source == "secretary_app" and not payload.patient_id:
@@ -470,10 +487,15 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     if payload.source == "secretary_app" and payload.secretary_id:
         patient_entry["secretary_id"] = payload.secretary_id
 
-    patients_list.append(patient_entry)
-
-    # تحديث السعة
-    day_obj["capacity_used"] = next_token
+    # استبدال المريض الملغى أو إضافة جديد
+    if cancelled_index is not None:
+        # استبدال المريض الملغى
+        patients_list[cancelled_index] = patient_entry
+    else:
+        # إضافة مريض جديد
+        patients_list.append(patient_entry)
+        # تحديث السعة
+        day_obj["capacity_used"] = next_token
     day_obj["patients"] = patients_list
     days[date_key] = day_obj
 
@@ -819,15 +841,12 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
     if target_index is None:
         raise HTTPException(status_code=404, detail="الحجز غير موجود داخل هذا التاريخ")
 
-    # إذا الحالة صارت "ملغى" أو "الغاء الحجز"، نحذف الحجز من القائمة
+    # تحديث الحالة فقط (لا حذف)
+    # إذا الحالة صارت "ملغى" أو "الغاء الحجز"، نغير الحالة لكن نبقي المريض في القائمة
     cancellation_statuses = ["ملغى", "الغاء الحجز", "cancelled"]
     if normalized_status in cancellation_statuses:
-        # حذف الحجز الملغى من القائمة
-        plist.pop(target_index)
-        
-        # تحديث عدد المرضى
-        if isinstance(day_obj.get("capacity_used"), int) and day_obj["capacity_used"] > 0:
-            day_obj["capacity_used"] = day_obj["capacity_used"] - 1
+        # تغيير الحالة إلى "ملغى" بدلاً من الحذف
+        plist[target_index]["status"] = "ملغى"
     else:
         # تحديث الحالة فقط
         plist[target_index]["status"] = normalized_status
