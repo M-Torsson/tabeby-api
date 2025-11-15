@@ -207,11 +207,8 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
     final_date = None
     day_obj = None
     
-    # للسكرتير: يجب تحديد التاريخ
-    if payload.source == "secretary_app":
-        if not payload.date:
-            raise HTTPException(status_code=400, detail="السكرتير يجب أن يحدد التاريخ")
-        
+    # إذا تم تحديد التاريخ صراحة (سكرتير أو مريض)
+    if payload.date:
         date_key = payload.date
         
         # إنشاء اليوم إذا لم يكن موجوداً
@@ -228,7 +225,7 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                     pass
             
             day_obj = {
-                "source": "secretary_app",
+                "source": payload.source,
                 "status": "open",
                 "capacity_total": ref_capacity,
                 "capacity_used": 0,
@@ -241,7 +238,7 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
             # التحقق من صحة البنية
             if not isinstance(day_obj, dict):
                 day_obj = {
-                    "source": "secretary_app",
+                    "source": payload.source,
                     "status": "open",
                     "capacity_total": 20,
                     "capacity_used": 0,
@@ -251,8 +248,8 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         
         final_date = date_key
     
-    # للمريض: البحث التلقائي عن أقرب يوم متاح
-    else:  # patient_app
+    # البحث التلقائي عن أقرب يوم متاح (فقط إذا لم يُحدد التاريخ)
+    elif payload.source == "patient_app":
         # نبدأ من اليوم الحالي بتوقيت العراق
         from .timezone_utils import now_iraq
         now_dt = now_iraq()
@@ -397,6 +394,9 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                 status_code=400, 
                 detail=f"لا يوجد أيام متاحة خلال الـ {max_days} يوم القادمة"
             )
+    else:
+        # السكرتير بدون تاريخ - خطأ
+        raise HTTPException(status_code=400, detail="يجب تحديد التاريخ")
     
     # الآن لدينا final_date و day_obj
     date_key = final_date
