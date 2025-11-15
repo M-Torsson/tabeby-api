@@ -847,12 +847,34 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
     if target_index is None:
         raise HTTPException(status_code=404, detail="الحجز غير موجود داخل هذا التاريخ")
 
-    # تحديث الحالة فقط (لا حذف)
-    # إذا الحالة صارت "ملغى" أو "الغاء الحجز"، نغير الحالة لكن نبقي المريض في القائمة
+    # تحديث الحالة
     cancellation_statuses = ["ملغى", "الغاء الحجز", "cancelled"]
     if normalized_status in cancellation_statuses:
-        # تغيير الحالة إلى "ملغى" بدلاً من الحذف
-        plist[target_index]["status"] = "ملغى"
+        # حذف المريض الملغى وإعادة ترقيم التوكنات
+        plist.pop(target_index)
+        
+        # إعادة ترقيم جميع التوكنات بعد الحذف
+        for idx, p in enumerate(plist):
+            if isinstance(p, dict):
+                new_token = idx + 1
+                p["token"] = new_token
+                
+                # تحديث booking_id ليطابق التوكن الجديد
+                old_booking_id = p.get("booking_id", "")
+                if old_booking_id:
+                    parts = old_booking_id.split('-')
+                    if len(parts) >= 4:
+                        prefix = parts[0]  # B or S
+                        clinic = parts[1]
+                        date_compact = parts[2]
+                        # إنشاء booking_id جديد بالتوكن الجديد
+                        if prefix == "S":
+                            p["booking_id"] = f"S-{clinic}-{date_compact}-{new_token:03d}"
+                        else:
+                            p["booking_id"] = f"B-{clinic}-{date_compact}-{new_token:04d}"
+        
+        # تحديث capacity_used
+        day_obj["capacity_used"] = len(plist)
     else:
         # تحديث الحالة فقط
         plist[target_index]["status"] = normalized_status
