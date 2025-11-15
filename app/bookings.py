@@ -342,10 +342,16 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                         continue
                     
                     capacity_total = day_obj.get("capacity_total", 20)
-                    capacity_used = day_obj.get("capacity_used", 0)
                     
-                    # إذا كان هناك مكان متاح
-                    if capacity_used < capacity_total:
+                    # حساب السعة الفعلية (بدون الحجوزات الملغاة)
+                    patients_list = day_obj.get("patients", [])
+                    active_patients_count = sum(
+                        1 for p in patients_list 
+                        if isinstance(p, dict) and p.get("status") != "ملغى"
+                    )
+                    
+                    # إذا كان هناك مكان متاح (نحسب الفعليين فقط، وليس capacity_used)
+                    if active_patients_count < capacity_total:
                         # التحقق من عدم تكرار patient_id (إذا كان محدداً)
                         if payload.patient_id:
                             patients = day_obj.get("patients", [])
