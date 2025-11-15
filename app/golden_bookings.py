@@ -242,38 +242,22 @@ def patient_golden_booking(
         patients = []
     
     capacity_total = day_obj.get("capacity_total", 5)
-    capacity_used = day_obj.get("capacity_used", 0)
     
-    # البحث عن أي حجز ملغى (لأي مريض) لإعادة استخدام مكانه
-    # نبحث عن أصغر توكن ملغى لملء الفراغات بالترتيب
-    cancelled_booking_idx = None
-    cancelled_booking_token = None
+    # حساب عدد الحجوزات النشطة (غير الملغاة) للحصول على التوكن الجديد
+    active_patients = [
+        p for p in patients 
+        if isinstance(p, dict) and p.get("status") not in ("ملغى", "cancelled")
+    ]
+    next_token = len(active_patients) + 1
     
-    cancelled_bookings = []
-    for idx, p in enumerate(patients):
-        if isinstance(p, dict) and p.get("status") in ("ملغى", "cancelled"):
-            cancelled_bookings.append((idx, p.get("token", 999999)))
-    
-    # إذا وجدنا حجوزات ملغاة، نأخذ الحجز بأصغر توكن (لملء الفراغات بالترتيب)
-    if cancelled_bookings:
-        cancelled_bookings.sort(key=lambda x: x[1])  # ترتيب حسب التوكن
-        cancelled_booking_idx = cancelled_bookings[0][0]
-        cancelled_booking_token = cancelled_bookings[0][1]
-    
-    # جمع الأكواد الموجودة حالياً لليوم (نستثني الحجز الملغى الذي سنستبدله)
+    # جمع الأكواد الموجودة حالياً لليوم
     existing_codes = {
-        p.get("code") for i, p in enumerate(patients) 
-        if isinstance(p, dict) and p.get("code") and i != cancelled_booking_idx
+        p.get("code") for p in patients 
+        if isinstance(p, dict) and p.get("code")
     }
     
     # توليد كود فريد
     new_code = _generate_unique_code(existing_codes)
-    
-    # حساب التوكن: إذا وجدنا حجز ملغى نستخدم توكنه، وإلا نأخذ التوكن التالي
-    if cancelled_booking_token is not None:
-        next_token = cancelled_booking_token  # نعيد استخدام التوكن الملغى
-    else:
-        next_token = max([p.get("token", 0) for p in patients if isinstance(p, dict)], default=0) + 1
     
     # تاريخ الحجز بصيغة ISO
     date_compact = final_date.replace("-", "")  # YYYYMMDD
@@ -292,15 +276,11 @@ def patient_golden_booking(
         "created_at": created_at
     }
     
-    # إذا وجدنا حجز ملغى، نستبدله بالحجز الجديد
-    if cancelled_booking_idx is not None:
-        patients[cancelled_booking_idx] = patient_entry
-        # لا نزيد capacity_used لأننا استبدلنا حجز موجود
-    else:
-        # حجز جديد، نضيفه للقائمة
-        patients.append(patient_entry)
-        day_obj["capacity_used"] = capacity_used + 1
+    # إضافة الحجز الجديد دائماً في النهاية (الملغى يبقى لكن بدون token)
+    patients.append(patient_entry)
     
+    # تحديث السعة المستخدمة = عدد الحجوزات النشطة
+    day_obj["capacity_used"] = next_token
     day_obj["patients"] = patients
     
     days[final_date] = day_obj
@@ -324,7 +304,7 @@ def patient_golden_booking(
         code=new_code,
         booking_id=booking_id,
         token=next_token,
-        capacity_used=capacity_used + 1,
+        capacity_used=next_token,  # السعة = عدد الحجوزات النشطة
         capacity_total=capacity_total,
         status="تم الحجز",
         clinic_id=payload.clinic_id,
