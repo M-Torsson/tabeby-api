@@ -349,11 +349,14 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                     
                     # إذا كان هناك مكان متاح (نحسب الفعليين فقط، وليس capacity_used)
                     if active_patients_count < capacity_total:
-                        # التحقق من عدم تكرار patient_id (إذا كان محدداً)
+                        # التحقق من عدم تكرار patient_id (إذا كان محدداً) - نتجاهل الملغاة
                         if payload.patient_id:
                             patients = day_obj.get("patients", [])
+                            # فقط الحجوزات النشطة (غير الملغاة)
                             is_duplicate = any(
-                                isinstance(p, dict) and p.get("patient_id") == payload.patient_id 
+                                isinstance(p, dict) and 
+                                p.get("patient_id") == payload.patient_id and 
+                                p.get("status") != "ملغى"
                                 for p in patients
                             )
                             if not is_duplicate:
@@ -426,11 +429,13 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
                         pass
         auto_patient_id_for_patient_app = f"P-{max_num+1}"
     
-    # منع تكرار نفس patient_id في نفس التاريخ
+    # منع تكرار نفس patient_id في نفس التاريخ (نتجاهل الحجوزات الملغاة)
     if payload.patient_id:
         for p in patients_list:
-            if p.get("patient_id") == payload.patient_id:
-                raise HTTPException(status_code=409, detail="هذا المريض محجوز مسبقاً في هذا التاريخ")
+            if isinstance(p, dict) and p.get("patient_id") == payload.patient_id:
+                # إذا كان المريض موجود لكن حجزه ملغى، نسمح بالحجز الجديد
+                if p.get("status") != "ملغى":
+                    raise HTTPException(status_code=409, detail="هذا المريض محجوز مسبقاً في هذا التاريخ")
 
     capacity_total = int(day_obj.get("capacity_total", 20))
     
