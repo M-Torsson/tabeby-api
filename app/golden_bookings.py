@@ -621,8 +621,10 @@ def close_table_gold(
     db.commit()
 
     # الخطوة 2: حفظ اليوم في الأرشيف
-    patients_list = day_obj.get("patients", [])
-    capacity_total = day_obj.get("capacity_total", 0)
+    # قراءة البيانات المحدثة من days بعد التعديل
+    updated_day = days[payload.date]
+    patients_list = updated_day.get("patients", [])
+    capacity_total = updated_day.get("capacity_total", 0)
     capacity_served = sum(1 for p in patients_list if isinstance(p, dict) and p.get("status") in ("تمت المعاينة", "served"))
     capacity_cancelled = sum(1 for p in patients_list if isinstance(p, dict) and p.get("status") in ("ملغى", "cancelled"))
     
