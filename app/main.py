@@ -24,7 +24,6 @@ from .clinic_status import router as clinic_status_router
 from .account_status import router as account_status_router
 from .clinic_info import router as clinic_info_router
 from .maintenance import router as maintenance_router
-from .ios_specializations import router as ios_specializations_router
 from fastapi.middleware.cors import CORSMiddleware
 from .firebase_init import ensure_firebase_initialized
 from .doctors import _denormalize_profile, _to_ascii_digits, _safe_int, require_profile_secret  # reuse helpers
@@ -442,7 +441,6 @@ app.include_router(clinic_status_router)
 app.include_router(account_status_router)
 app.include_router(clinic_info_router)
 app.include_router(maintenance_router)
-app.include_router(ios_specializations_router)
 
 # راوتر توافق لطلبـات قديمة تبدأ بـ /backend (مخفى عن الوثائق)
 from .auth import get_current_admin

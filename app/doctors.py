@@ -18,6 +18,64 @@ from .cache import cache
 
 router = APIRouter(prefix="/api", tags=["Doctors"])
 
+# iOS Specializations Mapping - IDs متطابقة مع Swift enum
+# يتم استخدامها عندما يأتي request من تطبيق iOS
+IOS_SPEC_NAME_TO_ID = {
+    "طبيب عام": 1,
+    "الجهاز الهضمي": 2,
+    "الصدرية والقلبية": 3,
+    "أمراض جلدية": 4,
+    "مخ وأعصاب": 5,
+    "طب نفسي": 6,
+    "طب أطفال": 7,
+    "نسائية و توليد / رعاية حوامل": 8,
+    "نسائية وتوليد / رعاية حوامل": 8,  # نسخة بديلة
+    "جراحة العظام و المفاصل و الكسور": 9,
+    "جراحة العيون": 10,
+    "أنف وأذن و حنجرة": 11,
+    "الغدد الصماء": 12,
+    "صدرية و تنفسية": 13,
+    "أمراض الكلى": 14,
+    "طب الأسنان": 15,
+    "طب اسنان": 15,  # نسخة بديلة
+    "طب أسنان": 15,  # نسخة بديلة
+    "جراحة تجميلة": 16,
+    "جراحة تجميلية": 16,  # نسخة بديلة
+    "المسالك البولية": 17,
+    "أخصائي المناعة": 18,
+    "أخصائي أمراض الدم": 19,
+    "سرطان و اورام": 20,
+}
+
+# Android Specializations Mapping - IDs الحالية (نفس ما كانت موجودة)
+# يتم استخدامها عندما يأتي request من تطبيق Android أو بدون platform header
+ANDROID_SPEC_NAME_TO_ID = {
+    "طبيب عام": 1,
+    "الجهاز الهضمي": 2,
+    "الصدرية والقلبية": 3,
+    "أمراض جلدية": 4,
+    "مخ وأعصاب": 5,
+    "طب نفسي": 6,
+    "طب أطفال": 7,
+    "نسائية و توليد / رعاية حوامل": 8,
+    "نسائية وتوليد / رعاية حوامل": 8,
+    "جراحة العظام و المفاصل و الكسور": 9,
+    "جراحة العيون": 10,
+    "أنف وأذن و حنجرة": 11,
+    "الغدد الصماء": 12,
+    "صدرية و تنفسية": 13,
+    "أمراض الكلى": 14,
+    "طب الأسنان": 15,
+    "طب اسنان": 15,
+    "طب أسنان": 15,
+    "جراحة تجميلة": 16,
+    "جراحة تجميلية": 16,
+    "المسالك البولية": 17,
+    "أخصائي المناعة": 18,
+    "أخصائي أمراض الدم": 19,
+    "سرطان و اورام": 20,
+}
+
 
 def get_db():
     db = SessionLocal()
@@ -645,16 +703,29 @@ async def create_doctor(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/clinics")
-def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
+def list_clinics(
+    request: Request,
+    secret_ok: None = Depends(require_profile_secret),
+    db: Session = Depends(get_db)
+):
     """
     يُرجع جميع العيادات بدون ترقيم صفحات:
     [ { clinic_id, doctor_name, profile_image_URL?, specializations } ]
     يتطلب Doctor-Secret.
+    
+    دعم متعدد المنصات:
+    - إذا كان Header "X-Platform: iOS" → يستخدم IDs المتطابقة مع Swift
+    - وإلا (Android أو غيره) → يستخدم IDs الحالية
+    
     ملاحظة:
     - لا تُعاد أي مفاتيح إضافية (لا dents_addition ولا plastic_addition).
     - إذا احتوت specializations على تخصص رئيسي واحد ("طب اسنان" أو "طب أسنان" أو "جراحة تجميلية")
       بالإضافة إلى عناصر فرعية أخرى، فسيتم إبقاء التخصص الرئيسي فقط داخل specializations وإسقاط بقية العناصر.
     """
+    # تحقق من المنصة من الـ header
+    platform = request.headers.get("X-Platform", "").lower()
+    is_ios = platform == "ios"
+    
     rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).order_by(models.Doctor.id.asc()).all()
     out: List[Dict[str, Any]] = []
     for r in rows:
@@ -691,11 +762,16 @@ def list_clinics(secret_ok: None = Depends(require_profile_secret), db: Session 
                 if isinstance(s, dict):
                     nm = s.get("name")
                     if isinstance(nm, str) and nm.strip():
-                        sid = _safe_int(s.get("id"))
+                        # استخدم mapping المناسب حسب platform
+                        spec_map = IOS_SPEC_NAME_TO_ID if is_ios else ANDROID_SPEC_NAME_TO_ID
+                        sid = spec_map.get(nm.strip())
                         specs_full.append({"id": sid, "name": nm.strip()})
                 else:
                     nm = str(s)
-                    specs_full.append({"id": None, "name": nm})
+                    # استخدم mapping المناسب حسب platform
+                    spec_map = IOS_SPEC_NAME_TO_ID if is_ios else ANDROID_SPEC_NAME_TO_ID
+                    sid = spec_map.get(nm.strip())
+                    specs_full.append({"id": sid, "name": nm})
 
         # (no additions returned in this endpoint)
 
