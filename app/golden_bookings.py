@@ -601,7 +601,17 @@ def close_table_gold(
     if not isinstance(day_obj, dict):
         raise HTTPException(status_code=400, detail="بنية اليوم غير صالحة")
 
-    # الخطوة 1: تغيير الحالة إلى closed
+    # الخطوة 1: تغيير حالة جميع المرضى إلى "ملغى"
+    patients_list = day_obj.get("patients", [])
+    for patient in patients_list:
+        if isinstance(patient, dict):
+            # تغيير حالة المرضى الذين لم تتم معاينتهم إلى ملغى
+            if patient.get("status") not in ("تمت المعاينة", "served"):
+                patient["status"] = "ملغى"
+    
+    day_obj["patients"] = patients_list
+    
+    # تغيير الحالة إلى closed
     day_obj["status"] = "closed"
     days[payload.date] = day_obj
     
