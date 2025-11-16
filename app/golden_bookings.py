@@ -728,15 +728,34 @@ def edit_patient_gold_booking(
     target_index = None
     old_status = None
     patient_id_found = None
+    
+    # البحث عن الحجز: إذا أُرسل token نبحث بـ booking_id + token (الحجز النشط فقط)
+    # وإلا نبحث بـ booking_id فقط
     for idx, p in enumerate(plist):
-        if isinstance(p, dict) and p.get("booking_id") == booking_id:
-            target_index = idx
-            old_status = p.get("status")
-            patient_id_found = p.get("patient_id")
-            break
+        if isinstance(p, dict):
+            # التحقق من booking_id
+            if p.get("booking_id") != booking_id:
+                continue
+            
+            # إذا أُرسل token، نتحقق منه أيضاً (للحجز النشط فقط)
+            if payload.token is not None:
+                if p.get("token") == payload.token:
+                    target_index = idx
+                    old_status = p.get("status")
+                    patient_id_found = p.get("patient_id")
+                    break
+            else:
+                # بدون token، نأخذ أول مطابقة
+                target_index = idx
+                old_status = p.get("status")
+                patient_id_found = p.get("patient_id")
+                break
 
     if target_index is None:
-        raise HTTPException(status_code=404, detail="الحجز الذهبي غير موجود داخل هذا التاريخ")
+        if payload.token is not None:
+            raise HTTPException(status_code=404, detail=f"الحجز الذهبي غير موجود (booking_id={booking_id}, token={payload.token})")
+        else:
+            raise HTTPException(status_code=404, detail="الحجز الذهبي غير موجود داخل هذا التاريخ")
 
     # تحديث الحالة
     cancellation_statuses = ["ملغى", "الغاء الحجز", "cancelled"]
