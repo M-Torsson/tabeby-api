@@ -540,14 +540,6 @@ def save_table_gold(
         existing.capacity_cancelled = cap_cancelled
         existing.patients_json = json.dumps(patients_list, ensure_ascii=False)
         db.add(existing)
-        db.commit()
-        
-        # مسح الكاش بعد التحديث
-        from .cache import cache
-        cache_key = f"golden:days:clinic:{payload.clinic_id}"
-        cache.delete(cache_key)
-        
-        return schemas.SaveTableResponse(status="تم تحديث أرشيف Golden بنجاح")
     else:
         arch = models.GoldenBookingArchive(
             clinic_id=payload.clinic_id,
@@ -558,14 +550,42 @@ def save_table_gold(
             patients_json=json.dumps(patients_list or [], ensure_ascii=False)
         )
         db.add(arch)
-        db.commit()
+    db.commit()
+
+    # حذف اليوم من الجدول الذهبي بعد حفظه في الأرشيف (مثل الحجوزات العادية)
+    gt = db.query(models.GoldenBookingTable).filter(
+        models.GoldenBookingTable.clinic_id == payload.clinic_id
+    ).first()
+    
+    if gt:
+        try:
+            days = json.loads(gt.days_json) if gt.days_json else {}
+        except Exception:
+            days = {}
         
-        # مسح الكاش بعد الإنشاء
-        from .cache import cache
-        cache_key = f"golden:days:clinic:{payload.clinic_id}"
-        cache.delete(cache_key)
-        
-        return schemas.SaveTableResponse(status="تم إنشاء أرشيف Golden بنجاح")
+        # حذف اليوم من JSON
+        if payload.table_date in days:
+            days.pop(payload.table_date)
+            
+            # فحص إذا بقيت أيام أخرى (استبعاد المؤرشفة)
+            remaining_golden_days = [k for k in days.keys() if not k.startswith("_archived_")]
+            
+            if not remaining_golden_days:
+                # حذف السجل كاملاً إذا لم يتبق أيام
+                db.delete(gt)
+            else:
+                # تحديث الجدول بدون اليوم المحذوف
+                gt.days_json = json.dumps(days, ensure_ascii=False)
+                db.add(gt)
+            
+            db.commit()
+    
+    # مسح الكاش بعد التحديث
+    from .cache import cache
+    cache_key = f"golden:days:clinic:{payload.clinic_id}"
+    cache.delete(cache_key)
+    
+    return schemas.SaveTableResponse(status="تم حفظ اليوم في الأرشيف وحذفه من الجدول بنجاح")
 
 
 @router.post("/close_table_gold", response_model=schemas.CloseTableResponse)
