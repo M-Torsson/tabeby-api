@@ -647,7 +647,10 @@ def close_table_gold(
     # الخطوة 3: حذف اليوم من الجدول
     days.pop(payload.date)
     
-    if not days:
+    # استبعاد المفاتيح المؤرشفة من العد
+    remaining_golden_days = [k for k in days.keys() if not k.startswith("_archived_")]
+    
+    if not remaining_golden_days:
         # حذف السجل كاملاً إذا لم يتبق أيام
         db.delete(gt)
         db.commit()
