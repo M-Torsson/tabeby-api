@@ -146,7 +146,7 @@ GET https://tabeby-api.onrender.com/api/booking_archives/4?from_date=2025-11-10&
 
 **مثال:**
 ```
-GET https://tabeby-api.onrender.com/api/booking_archives/4
+GET https://tabeby-api.onrender.com/api/golden_booking_archives/4
 ```
 
 **Headers:**
@@ -154,7 +154,38 @@ GET https://tabeby-api.onrender.com/api/booking_archives/4
 Doctor-Secret: your-secret-here
 ```
 
-**نفس صيغة Response السابقة**
+**Response:**
+```json
+{
+    "clinic_id": 4,
+    "items": [
+        {
+            "table_date": "2025-11-13",
+            "capacity_total": 5,
+            "capacity_served": 3,
+            "capacity_cancelled": 1,
+            "patients": [
+                {
+                    "booking_id": "G-4-20251113-P-123",
+                    "token": 1,
+                    "patient_id": "P-123",
+                    "name": "أحمد حسين",
+                    "phone": "+9647801234567",
+                    "status": "تمت المعاينة",
+                    "code": "1234",
+                    "created_at": "2025-11-13T09:30:00.000000+00:00"
+                }
+            ]
+        }
+    ]
+}
+```
+
+#### مع فلترة بالتاريخ:
+
+```
+GET https://tabeby-api.onrender.com/api/golden_booking_archives/4?from_date=2025-11-01&to_date=2025-11-30
+```
 
 ---
 

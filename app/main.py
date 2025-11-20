@@ -1023,7 +1023,7 @@ async def check_phone_exists(
             content=json.dumps({
                 "error": {
                     "code": "invalid_format",
-                    "message": "phone must be in E.164 format (e.g., +9647701234567)"
+                    "message": "phone must be in E.164 format (e.g., +9647701234567 for Iraq or +201234567890 for Egypt)"
                 }
             }),
             media_type="application/json",

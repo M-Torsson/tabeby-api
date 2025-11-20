@@ -961,3 +961,67 @@ def get_all_days_golden(
         days = {}
     
     return schemas.AllDaysResponse(clinic_id=clinic_id, days=days)
+
+
+@router.get("/golden_booking_archives/{clinic_id}", response_model=schemas.BookingArchivesListResponse)
+def list_golden_booking_archives(
+    clinic_id: int,
+    from_date: str | None = None,  # YYYY-MM-DD
+    to_date: str | None = None,    # YYYY-MM-DD
+    limit: int | None = None,      # حد أقصى لعدد الأيام المرجعة
+    db: Session = Depends(get_db),
+    _: None = Depends(require_profile_secret),
+):
+    """إرجاع الأيام المؤرشفة للحجوزات الذهبية لعيادة معينة.
+
+    باراميترات اختيارية:
+    - from_date: بداية نطاق التاريخ (شامل)
+    - to_date: نهاية نطاق التاريخ (شامل)
+    - limit: عدد السجلات القصوى بعد الترتيب تنازلياً
+    """
+    q = db.query(models.GoldenBookingArchive).filter(models.GoldenBookingArchive.clinic_id == clinic_id)
+    
+    def _valid(d: str) -> bool:
+        try:
+            datetime.strptime(d, "%Y-%m-%d")
+            return True
+        except Exception:
+            return False
+    
+    if from_date:
+        if not _valid(from_date):
+            raise HTTPException(status_code=400, detail="صيغة from_date غير صحيحة")
+        q = q.filter(models.GoldenBookingArchive.table_date >= from_date)
+    
+    if to_date:
+        if not _valid(to_date):
+            raise HTTPException(status_code=400, detail="صيغة to_date غير صحيحة")
+        q = q.filter(models.GoldenBookingArchive.table_date <= to_date)
+    
+    q = q.order_by(models.GoldenBookingArchive.table_date.desc())
+    
+    if limit and limit > 0:
+        q = q.limit(limit)
+    
+    rows = q.all()
+    items: list[schemas.BookingArchiveItem] = []
+    
+    for r in rows:
+        try:
+            patients = json.loads(r.patients_json) if r.patients_json else []
+            if not isinstance(patients, list):
+                patients = []
+        except Exception:
+            patients = []
+        
+        items.append(
+            schemas.BookingArchiveItem(
+                table_date=r.table_date,
+                capacity_total=r.capacity_total,
+                capacity_served=r.capacity_served,
+                capacity_cancelled=r.capacity_cancelled,
+                patients=patients,
+            )
+        )
+    
+    return schemas.BookingArchivesListResponse(clinic_id=clinic_id, items=items)
