@@ -864,7 +864,7 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
         clinic_id=payload.clinic_id,
         booking_id=booking_id,
         old_status=old_status,
-        new_status=normalized_status,
+        new_status=status_display if normalized_status in cancellation_statuses else normalized_status,
         patient_id=patient_id_found
     )
 
