@@ -403,9 +403,8 @@ class BookingDaysFullResponse(BaseModel):
 class EditPatientBookingRequest(BaseModel):
     clinic_id: int
     booking_id: str  # إجباري الآن - نستخدمه لاستخراج التاريخ والمريض
-    status: str  # يمكن إرسال إنجليزي (booked, served, ...) أو عربي
+    status: str  # يمكن إرسال أي نص مباشرة ("الغاء الحجز", "ملغى", "تم الحجز", إلخ)
     token: int | None = None  # اختياري - للحجوزات الذهبية: للبحث عن الحجز النشط فقط
-    status_text: str | None = None  # اختياري - نص مخصص للحالة (مثل "الغاء الحجز" من iOS)
 
 class EditPatientBookingResponse(BaseModel):
     message: str

@@ -836,15 +836,14 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
 
     # تحديث الحالة
     cancellation_statuses = ["ملغى", "الغاء الحجز", "cancelled"]
-    if normalized_status in cancellation_statuses:
+    if payload.status in cancellation_statuses or normalized_status in cancellation_statuses:
         # تغيير الحالة فقط (Token يبقى كما هو)
-        # استخدام status_text المخصص إذا تم إرساله، وإلا استخدام "ملغى" كافتراضي
-        status_display = payload.status_text if payload.status_text else "ملغى"
-        plist[target_index]["status"] = status_display
+        # استخدام القيمة المُرسلة مباشرة من status
+        plist[target_index]["status"] = payload.status
         # لا نغير التوكن أبداً - يبقى كما هو
     else:
-        # تحديث الحالة فقط
-        plist[target_index]["status"] = normalized_status
+        # تحديث الحالة - استخدام القيمة المُرسلة مباشرة
+        plist[target_index]["status"] = payload.status
 
     day_obj["patients"] = plist
     days[date_key] = day_obj
@@ -864,7 +863,7 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
         clinic_id=payload.clinic_id,
         booking_id=booking_id,
         old_status=old_status,
-        new_status=status_display if normalized_status in cancellation_statuses else normalized_status,
+        new_status=payload.status,
         patient_id=patient_id_found
     )
 

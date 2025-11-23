@@ -795,10 +795,8 @@ def edit_patient_gold_booking(
 
     # تحديث الحالة
     cancellation_statuses = ["ملغى", "الغاء الحجز", "cancelled"]
-    if normalized_status in cancellation_statuses:
+    if payload.status in cancellation_statuses or normalized_status in cancellation_statuses:
         # للحجوزات الذهبية: حذف الحجز الملغي وإعادة ترقيم الباقي
-        # استخدام status_text المخصص إذا تم إرساله، وإلا استخدام "ملغى" كافتراضي
-        status_display = payload.status_text if payload.status_text else "ملغى"
         
         # حذف الحجز الملغي من القائمة
         plist.pop(target_index)
@@ -812,8 +810,8 @@ def edit_patient_gold_booking(
         # تحديث capacity_used
         day_obj["capacity_used"] = len(plist)
     else:
-        # تحديث الحالة فقط
-        plist[target_index]["status"] = normalized_status
+        # تحديث الحالة - استخدام القيمة المُرسلة مباشرة
+        plist[target_index]["status"] = payload.status
 
     day_obj["patients"] = plist
     days[date_key] = day_obj
