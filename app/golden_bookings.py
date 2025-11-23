@@ -795,30 +795,11 @@ def edit_patient_gold_booking(
     # تحديث الحالة
     cancellation_statuses = ["ملغى", "الغاء الحجز", "cancelled"]
     if normalized_status in cancellation_statuses:
-        # تغيير الحالة إلى "ملغى" وإزالة التوكن
-        plist[target_index]["status"] = "ملغى"
-        plist[target_index]["token"] = None  # إزالة التوكن من الملغى
-        
-        # إعادة ترقيم الحجوزات النشطة فقط (غير الملغاة)
-        active_token = 1
-        for p in plist:
-            if isinstance(p, dict) and p.get("status") != "ملغى":
-                p["token"] = active_token
-                
-                # تحديث booking_id ليطابق التوكن الجديد
-                old_booking_id = p.get("booking_id", "")
-                if old_booking_id:
-                    parts = old_booking_id.split('-')
-                    if len(parts) >= 4:
-                        prefix = parts[0]  # B or S
-                        clinic = parts[1]
-                        date_compact = parts[2]
-                        p["booking_id"] = f"G-{clinic}-{date_compact}-{active_token:04d}"
-                
-                active_token += 1
-        
-        # تحديث capacity_used (عدد الحجوزات النشطة فقط)
-        day_obj["capacity_used"] = active_token - 1
+        # تغيير الحالة فقط (Token يبقى كما هو)
+        # استخدام status_text المخصص إذا تم إرساله، وإلا استخدام "ملغى" كافتراضي
+        status_display = payload.status_text if payload.status_text else "ملغى"
+        plist[target_index]["status"] = status_display
+        # لا نغير التوكن أبداً - يبقى كما هو
     else:
         # تحديث الحالة فقط
         plist[target_index]["status"] = normalized_status

@@ -405,6 +405,7 @@ class EditPatientBookingRequest(BaseModel):
     booking_id: str  # إجباري الآن - نستخدمه لاستخراج التاريخ والمريض
     status: str  # يمكن إرسال إنجليزي (booked, served, ...) أو عربي
     token: int | None = None  # اختياري - للحجوزات الذهبية: للبحث عن الحجز النشط فقط
+    status_text: str | None = None  # اختياري - نص مخصص للحالة (مثل "الغاء الحجز" من iOS)
 
 class EditPatientBookingResponse(BaseModel):
     message: str
