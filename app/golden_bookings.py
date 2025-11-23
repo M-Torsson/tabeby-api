@@ -248,7 +248,8 @@ def patient_golden_booking(
         p for p in patients 
         if isinstance(p, dict) and p.get("status") not in ("ملغى", "cancelled")
     ]
-    next_token = len(active_patients) + 1
+    # الحجوزات الذهبية تستخدم توكنات سالبة: -1, -2, -3, ...
+    next_token = -(len(active_patients) + 1)
     
     # جمع الأكواد الموجودة حالياً لليوم
     existing_codes = {
@@ -795,11 +796,21 @@ def edit_patient_gold_booking(
     # تحديث الحالة
     cancellation_statuses = ["ملغى", "الغاء الحجز", "cancelled"]
     if normalized_status in cancellation_statuses:
-        # تغيير الحالة فقط (Token يبقى كما هو)
+        # للحجوزات الذهبية: حذف الحجز الملغي وإعادة ترقيم الباقي
         # استخدام status_text المخصص إذا تم إرساله، وإلا استخدام "ملغى" كافتراضي
         status_display = payload.status_text if payload.status_text else "ملغى"
-        plist[target_index]["status"] = status_display
-        # لا نغير التوكن أبداً - يبقى كما هو
+        
+        # حذف الحجز الملغي من القائمة
+        plist.pop(target_index)
+        
+        # إعادة ترقيم الحجوزات المتبقية بأرقام سالبة متسلسلة (-1, -2, -3, ...)
+        # ملاحظة: booking_id للحجوزات الذهبية يعتمد على patient_id ولا يتغير
+        for idx, p in enumerate(plist, start=1):
+            if isinstance(p, dict):
+                p["token"] = -idx
+        
+        # تحديث capacity_used
+        day_obj["capacity_used"] = len(plist)
     else:
         # تحديث الحالة فقط
         plist[target_index]["status"] = normalized_status
