@@ -434,7 +434,7 @@ def patient_booking(payload: schemas.PatientBookingRequest, db: Session = Depend
         for p in patients_list:
             if isinstance(p, dict) and p.get("patient_id") == payload.patient_id:
                 # إذا كان المريض موجود لكن حجزه ملغى، نسمح بالحجز الجديد
-                if p.get("status") != "ملغى":
+                if p.get("status") not in ("ملغى", "الغاء الحجز", "cancelled"):
                     raise HTTPException(status_code=409, detail="هذا المريض محجوز مسبقاً في هذا التاريخ")
 
     capacity_total = int(day_obj.get("capacity_total", 20))
