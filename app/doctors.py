@@ -18,52 +18,9 @@ from .cache import cache
 
 router = APIRouter(prefix="/api", tags=["Doctors"])
 
-# iOS Specializations Mapping - IDs متطابقة مع Swift enum
-# يتم استخدامها عندما يأتي request من تطبيق iOS
-IOS_SPEC_NAME_TO_ID = {
-    # العربية
-    "طبيب عام": 1,
-    "الجهاز الهضمي": 2,
-    "الصدرية والقلبية": 3,
-    "أمراض جلدية": 4,
-    "مخ وأعصاب": 5,
-    "طب نفسي": 6,
-    "طب أطفال": 7,
-    "نسائية و توليد / رعاية حوامل": 8,
-    "نسائية وتوليد / رعاية حوامل": 8,
-    "جراحة العظام و المفاصل و الكسور": 9,
-    "جراحة العيون": 10,
-    "أنف وأذن و حنجرة": 11,
-    "الغدد الصماء": 12,
-    "صدرية و تنفسية": 13,
-    "أمراض الكلى": 14,
-    "طب الأسنان": 15,
-    "طب اسنان": 15,
-    "طب أسنان": 15,
-    "جراحة تجميلة": 16,
-    "جراحة تجميلية": 16,
-    "المسالك البولية": 17,
-    "أخصائي المناعة": 18,
-    "أخصائي أمراض الدم": 19,
-    "سرطان و اورام": 20,
-    "طب أسرة": 21,
-    "طب الأسرة": 21,  # نسخة بديلة
-    "تغذية": 22,
-    "تجميل لا جراحي وليزر": 23,
-    "تجميل غير جراحي وليزر": 23,  # نسخة بديلة
-    "مفاصل وتأهيل طبي": 24,
-    "أشعة و سنوار": 25,
-    "أشعة وسنوار": 25,  # نسخة بديلة
-    "أشعة و سونار": 25,  # نسخة بواو بدل نون
-    "أشعة وسونار": 25,  # نسخة بواو بدل نون بدون مسافة
-    # English variations
-    "General": 1,
-    "general": 1,
-}
-
-# Android Specializations Mapping - IDs الحالية (نفس ما كانت موجودة)
-# يتم استخدامها عندما يأتي request من تطبيق Android أو بدون platform header
-ANDROID_SPEC_NAME_TO_ID = {
+# Unified Specializations Mapping - نفس IDs لكل المنصات (iOS & Android)
+# IDs متطابقة مع Swift enum في iOS
+SPEC_NAME_TO_ID = {
     # العربية
     "طبيب عام": 1,
     "الجهاز الهضمي": 2,
@@ -273,12 +230,8 @@ def list_doctors(
     sort: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    # تحقق من المنصة من الـ header
-    platform = request.headers.get("X-Platform", "").lower()
-    is_ios = platform == "ios"
-    spec_map = IOS_SPEC_NAME_TO_ID if is_ios else ANDROID_SPEC_NAME_TO_ID
-    
     # إنشاء cache key فريد بناءً على المعاملات
+    platform = request.headers.get("X-Platform", "").lower()
     cache_key = f"doctors:list:{platform}:{q}:{specialty}:{status}:{expMin}:{expMax}:{page}:{pageSize}:{sort}"
     
     # محاولة الحصول من الكاش
@@ -365,12 +318,12 @@ def list_doctors(
                                 sid = _safe_int(s.get("id"))
                                 # إذا لم يكن موجود، استخدم mapping لتوليده تلقائياً
                                 if sid is None:
-                                    sid = spec_map.get(nm.strip())
+                                    sid = SPEC_NAME_TO_ID.get(nm.strip())
                                 specs_full.append({"id": sid, "name": nm.strip()})
                         else:
                             nm = str(s).strip()
                             # استخدم mapping لتوليد ID من الاسم
-                            sid = spec_map.get(nm)
+                            sid = SPEC_NAME_TO_ID.get(nm)
                             specs_full.append({"id": sid, "name": nm})
                 # existing additions if present
                 dr = pobj.get("dents_addition")
@@ -502,9 +455,12 @@ def get_doctors_count_stats(db: Session = Depends(get_db), _: None = Depends(req
 
 
 @router.get("/doctors/{doctor_id}")
-def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
+def get_doctor(doctor_id: int, request: Request, secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
+    # تحقق من المنصة من الـ header
+    platform = request.headers.get("X-Platform", "").lower()
+    
     # تحقق من الكاش أولاً
-    cache_key = f"doctor:single:{doctor_id}"
+    cache_key = f"doctor:single:{doctor_id}:{platform}"
     cached_result = cache.get(cache_key)
     if cached_result is not None:
         return cached_result
@@ -523,6 +479,26 @@ def get_doctor(doctor_id: int, secret_ok: None = Depends(require_profile_secret)
         g = profile.get("general_info")
         if isinstance(g, dict):
             g.pop("accountStatus", None)
+        
+        # معالجة التخصصات لإضافة IDs
+        raw_specs = profile.get("specializations")
+        if isinstance(raw_specs, list):
+            specs_with_ids = []
+            for s in raw_specs:
+                if isinstance(s, dict):
+                    # إذا كان dict بالفعل، تحقق من وجود ID
+                    nm = s.get("name")
+                    if isinstance(nm, str) and nm.strip():
+                        sid = _safe_int(s.get("id"))
+                        if sid is None:
+                            sid = SPEC_NAME_TO_ID.get(nm.strip())
+                        specs_with_ids.append({"id": sid, "name": nm.strip()})
+                else:
+                    # إذا كان string، حوله إلى dict مع ID
+                    nm = str(s).strip()
+                    sid = SPEC_NAME_TO_ID.get(nm)
+                    specs_with_ids.append({"id": sid, "name": nm})
+            profile["specializations"] = specs_with_ids
     
     # account block
     acc = {
@@ -762,10 +738,6 @@ def list_clinics(
     - إذا احتوت specializations على تخصص رئيسي واحد ("طب اسنان" أو "طب أسنان" أو "جراحة تجميلية")
       بالإضافة إلى عناصر فرعية أخرى، فسيتم إبقاء التخصص الرئيسي فقط داخل specializations وإسقاط بقية العناصر.
     """
-    # تحقق من المنصة من الـ header
-    platform = request.headers.get("X-Platform", "").lower()
-    is_ios = platform == "ios"
-    
     rows = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).order_by(models.Doctor.id.asc()).all()
     out: List[Dict[str, Any]] = []
     for r in rows:
@@ -802,15 +774,11 @@ def list_clinics(
                 if isinstance(s, dict):
                     nm = s.get("name")
                     if isinstance(nm, str) and nm.strip():
-                        # استخدم mapping المناسب حسب platform
-                        spec_map = IOS_SPEC_NAME_TO_ID if is_ios else ANDROID_SPEC_NAME_TO_ID
-                        sid = spec_map.get(nm.strip())
+                        sid = SPEC_NAME_TO_ID.get(nm.strip())
                         specs_full.append({"id": sid, "name": nm.strip()})
                 else:
                     nm = str(s)
-                    # استخدم mapping المناسب حسب platform
-                    spec_map = IOS_SPEC_NAME_TO_ID if is_ios else ANDROID_SPEC_NAME_TO_ID
-                    sid = spec_map.get(nm.strip())
+                    sid = SPEC_NAME_TO_ID.get(nm.strip())
                     specs_full.append({"id": sid, "name": nm})
 
         # (no additions returned in this endpoint)
