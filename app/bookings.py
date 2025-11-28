@@ -837,10 +837,18 @@ def edit_patient_booking(payload: schemas.EditPatientBookingRequest, db: Session
     # تحديث الحالة
     cancellation_statuses = ["ملغى", "الغاء الحجز", "cancelled"]
     if payload.status in cancellation_statuses or normalized_status in cancellation_statuses:
-        # تغيير الحالة فقط (Token يبقى كما هو)
-        # استخدام القيمة المُرسلة مباشرة من status
-        plist[target_index]["status"] = payload.status
-        # لا نغير التوكن أبداً - يبقى كما هو
+        # للحجوزات العادية: حذف الحجز الملغي وإعادة ترقيم الباقي (مثل الذهبية)
+        
+        # حذف الحجز الملغي من القائمة
+        plist.pop(target_index)
+        
+        # إعادة ترقيم الحجوزات المتبقية بأرقام موجبة متسلسلة (1, 2, 3, ...)
+        for idx, p in enumerate(plist, start=1):
+            if isinstance(p, dict):
+                p["token"] = idx
+        
+        # تحديث capacity_used
+        day_obj["capacity_used"] = len(plist)
     else:
         # تحديث الحالة - استخدام القيمة المُرسلة مباشرة
         plist[target_index]["status"] = payload.status
