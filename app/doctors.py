@@ -21,35 +21,7 @@ router = APIRouter(prefix="/api", tags=["Doctors"])
 # iOS Specializations Mapping - IDs متطابقة مع Swift enum
 # يتم استخدامها عندما يأتي request من تطبيق iOS
 IOS_SPEC_NAME_TO_ID = {
-    "طبيب عام": 1,
-    "الجهاز الهضمي": 2,
-    "الصدرية والقلبية": 3,
-    "أمراض جلدية": 4,
-    "مخ وأعصاب": 5,
-    "طب نفسي": 6,
-    "طب أطفال": 7,
-    "نسائية و توليد / رعاية حوامل": 8,
-    "نسائية وتوليد / رعاية حوامل": 8,  # نسخة بديلة
-    "جراحة العظام و المفاصل و الكسور": 9,
-    "جراحة العيون": 10,
-    "أنف وأذن و حنجرة": 11,
-    "الغدد الصماء": 12,
-    "صدرية و تنفسية": 13,
-    "أمراض الكلى": 14,
-    "طب الأسنان": 15,
-    "طب اسنان": 15,  # نسخة بديلة
-    "طب أسنان": 15,  # نسخة بديلة
-    "جراحة تجميلة": 16,
-    "جراحة تجميلية": 16,  # نسخة بديلة
-    "المسالك البولية": 17,
-    "أخصائي المناعة": 18,
-    "أخصائي أمراض الدم": 19,
-    "سرطان و اورام": 20,
-}
-
-# Android Specializations Mapping - IDs الحالية (نفس ما كانت موجودة)
-# يتم استخدامها عندما يأتي request من تطبيق Android أو بدون platform header
-ANDROID_SPEC_NAME_TO_ID = {
+    # العربية
     "طبيب عام": 1,
     "الجهاز الهضمي": 2,
     "الصدرية والقلبية": 3,
@@ -74,6 +46,62 @@ ANDROID_SPEC_NAME_TO_ID = {
     "أخصائي المناعة": 18,
     "أخصائي أمراض الدم": 19,
     "سرطان و اورام": 20,
+    "طب أسرة": 21,
+    "طب الأسرة": 21,  # نسخة بديلة
+    "تغذية": 22,
+    "تجميل لا جراحي وليزر": 23,
+    "تجميل غير جراحي وليزر": 23,  # نسخة بديلة
+    "مفاصل وتأهيل طبي": 24,
+    "أشعة و سنوار": 25,
+    "أشعة وسنوار": 25,  # نسخة بديلة
+    "أشعة و سونار": 25,  # نسخة بواو بدل نون
+    "أشعة وسونار": 25,  # نسخة بواو بدل نون بدون مسافة
+    # English variations
+    "General": 1,
+    "general": 1,
+}
+
+# Android Specializations Mapping - IDs الحالية (نفس ما كانت موجودة)
+# يتم استخدامها عندما يأتي request من تطبيق Android أو بدون platform header
+ANDROID_SPEC_NAME_TO_ID = {
+    # العربية
+    "طبيب عام": 1,
+    "الجهاز الهضمي": 2,
+    "الصدرية والقلبية": 3,
+    "أمراض جلدية": 4,
+    "مخ وأعصاب": 5,
+    "طب نفسي": 6,
+    "طب أطفال": 7,
+    "نسائية و توليد / رعاية حوامل": 8,
+    "نسائية وتوليد / رعاية حوامل": 8,
+    "جراحة العظام و المفاصل و الكسور": 9,
+    "جراحة العيون": 10,
+    "أنف وأذن و حنجرة": 11,
+    "الغدد الصماء": 12,
+    "صدرية و تنفسية": 13,
+    "أمراض الكلى": 14,
+    "طب الأسنان": 15,
+    "طب اسنان": 15,
+    "طب أسنان": 15,
+    "جراحة تجميلة": 16,
+    "جراحة تجميلية": 16,
+    "المسالك البولية": 17,
+    "أخصائي المناعة": 18,
+    "أخصائي أمراض الدم": 19,
+    "سرطان و اورام": 20,
+    "طب أسرة": 21,
+    "طب الأسرة": 21,
+    "تغذية": 22,
+    "تجميل لا جراحي وليزر": 23,
+    "تجميل غير جراحي وليزر": 23,
+    "مفاصل وتأهيل طبي": 24,
+    "أشعة و سنوار": 25,
+    "أشعة وسنوار": 25,
+    "أشعة و سونار": 25,
+    "أشعة وسونار": 25,
+    # English variations
+    "General": 1,
+    "general": 1,
 }
 
 
@@ -234,6 +262,7 @@ def _ensure_seed(db: Session) -> None:
 
 @router.get("/doctors")
 def list_doctors(
+    request: Request,
     q: Optional[str] = None,
     specialty: Optional[str] = None,
     status: Optional[str] = None,
@@ -244,8 +273,13 @@ def list_doctors(
     sort: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
+    # تحقق من المنصة من الـ header
+    platform = request.headers.get("X-Platform", "").lower()
+    is_ios = platform == "ios"
+    spec_map = IOS_SPEC_NAME_TO_ID if is_ios else ANDROID_SPEC_NAME_TO_ID
+    
     # إنشاء cache key فريد بناءً على المعاملات
-    cache_key = f"doctors:list:{q}:{specialty}:{status}:{expMin}:{expMax}:{page}:{pageSize}:{sort}"
+    cache_key = f"doctors:list:{platform}:{q}:{specialty}:{status}:{expMin}:{expMax}:{page}:{pageSize}:{sort}"
     
     # محاولة الحصول من الكاش
     cached_result = cache.get(cache_key)
@@ -327,11 +361,17 @@ def list_doctors(
                         if isinstance(s, dict):
                             nm = s.get("name")
                             if isinstance(nm, str) and nm.strip():
+                                # محاولة الحصول على ID من البيانات المخزنة
                                 sid = _safe_int(s.get("id"))
+                                # إذا لم يكن موجود، استخدم mapping لتوليده تلقائياً
+                                if sid is None:
+                                    sid = spec_map.get(nm.strip())
                                 specs_full.append({"id": sid, "name": nm.strip()})
                         else:
-                            nm = str(s)
-                            specs_full.append({"id": None, "name": nm})
+                            nm = str(s).strip()
+                            # استخدم mapping لتوليد ID من الاسم
+                            sid = spec_map.get(nm)
+                            specs_full.append({"id": sid, "name": nm})
                 # existing additions if present
                 dr = pobj.get("dents_addition")
                 if isinstance(dr, list):
