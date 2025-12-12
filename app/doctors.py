@@ -111,6 +111,35 @@ def _safe_bool(v: Any, default: Optional[bool] = None) -> Optional[bool]:
     return default
 
 
+def _is_english_only(text: str) -> bool:
+    """Check if text contains only English letters, numbers, spaces, and common punctuation"""
+    if not text:
+        return True
+    # Allow: letters, numbers, spaces, dots, commas, hyphens, parentheses, apostrophes
+    allowed_pattern = re.compile(r'^[a-zA-Z0-9\s.,\-()\']+$')
+    return bool(allowed_pattern.match(text))
+
+
+def _validate_certifications(certifications: Any) -> List[str]:
+    """Validate that certifications are in English only and return cleaned list"""
+    if not isinstance(certifications, list):
+        return []
+    
+    valid_certs = []
+    for cert in certifications:
+        if not isinstance(cert, str):
+            continue
+        cert_clean = cert.strip()
+        if not cert_clean:
+            continue
+        if not _is_english_only(cert_clean):
+            # Skip non-English certifications
+            continue
+        valid_certs.append(cert_clean)
+    
+    return valid_certs
+
+
 DEFAULT_PROFILE = {
     "general_info": {
         "doctor_name": "Doctor",

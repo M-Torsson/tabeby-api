@@ -651,6 +651,12 @@ def _normalize_clinic_waiting_time(profile_obj: Dict[str, Any]) -> Dict[str, Any
         g = profile_obj.get("general_info")
         if isinstance(g, dict):
             g.pop("accountStatus", None)
+        
+        # Validate certifications - must be English only
+        from .doctors import _validate_certifications
+        certs = profile_obj.get("certifications")
+        if certs is not None:
+            profile_obj["certifications"] = _validate_certifications(certs)
             
         return profile_obj
     except Exception:
