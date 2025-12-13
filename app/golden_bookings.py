@@ -15,7 +15,6 @@ from .doctors import require_profile_secret
 STATUS_MAP = {
     "booked": "تم الحجز",
     "served": "تمت المعاينة",
-    "no_show": "لم يحضر",
     "cancelled": "ملغى",
     "in_progress": "جاري المعاينة",
 }
