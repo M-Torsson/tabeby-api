@@ -11,9 +11,9 @@ import importlib
 from typing import Any
  
 try:
-    pyotp: Any = importlib.import_module("pyotp")  # type: ignore
+    pyotp: Any = importlib.import_module("pyotp")
 except Exception:
-    pyotp = None  # type: ignore
+    pyotp = None
 from sqlalchemy.orm import Session
 
 from .auth import get_current_admin, get_db, oauth2_scheme
