@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -24,7 +25,6 @@ def create_or_update_patient_profile(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    # parse user_server_id in format P-<int>
     if not payload.user_server_id or not payload.user_server_id.startswith("P-"):
         raise HTTPException(status_code=400, detail="user_server_id must be like P-<id>")
     try:
@@ -36,7 +36,6 @@ def create_or_update_patient_profile(
     if not ua:
         raise HTTPException(status_code=404, detail="user_account not found")
 
-    # upsert profile for this user_account
     prof = db.query(models.PatientProfile).filter_by(user_account_id=ua.id).first()
     if prof:
         prof.patient_name = payload.patient_name
@@ -77,7 +76,6 @@ def get_patient_profile(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    # allow formats: P-<id> or just <id>
     raw = user_server_id.strip()
     if raw.upper().startswith("P-"):
         raw = raw.split("-", 1)[1]
@@ -152,7 +150,6 @@ def get_patients_count_stats(
             "inactive_list": [...]
         }
     """
-    # جلب جميع المرضى
     all_patients = db.query(models.PatientProfile).all()
     
     active_list = []
@@ -199,7 +196,6 @@ def delete_patient(
     
     يتطلب: Doctor-Secret header
     """
-    # Parse patient_id: accept "P-123" or "123"
     patient_id_str = patient_id.strip()
     if patient_id_str.upper().startswith("P-"):
         patient_id_str = patient_id_str.split("-", 1)[1]
@@ -212,24 +208,20 @@ def delete_patient(
             detail="invalid patient_id format; expected P-<id> or <id>"
         )
     
-    # البحث عن UserAccount
     ua = db.query(models.UserAccount).filter_by(id=ua_id).first()
     if not ua:
         raise HTTPException(status_code=404, detail="patient not found")
     
-    # التحقق من أنه مريض
     if ua.user_role != "patient":
         raise HTTPException(
             status_code=400, 
             detail=f"user is not a patient, role is: {ua.user_role}"
         )
     
-    # حذف البروفايل أولاً (إذا وجد)
     prof = db.query(models.PatientProfile).filter_by(user_account_id=ua.id).first()
     if prof:
         db.delete(prof)
     
-    # حذف UserAccount (سيحذف البيانات المرتبطة تلقائياً إذا كان CASCADE مفعّل)
     db.delete(ua)
     
     try:

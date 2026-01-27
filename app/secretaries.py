@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from __future__ import annotations
 import os
 from typing import Optional
@@ -45,7 +46,6 @@ def secretary_login_code(
     """
     
     try:
-        # Look up secretary by their code
         secretary = db.query(models.Secretary).filter(
             models.Secretary.secretary_id == request.secretary_code
         ).first()
@@ -56,19 +56,14 @@ def secretary_login_code(
                 detail="Secretary code not found"
             )
         
-        # Check if secretary is active
         if hasattr(secretary, 'is_active') and not secretary.is_active:
             raise HTTPException(
                 status_code=403,
                 detail="Secretary account is disabled by doctor"
             )
         
-        # Generate secretary_id in format "S-{clinic_id}"
         formatted_secretary_id = f"S-{secretary.clinic_id}"
 
-        # محاولة استخراج receiving_patients بدقة أعلى:
-        # 1) نحاول Doctor.id == clinic_id مباشرة (الأكثر دقة عندك)
-        # 2) وإلا نختار أفضل مطابقة على general_info.clinic_id (الأولوية لمطابقة الاسم ثم الأحدث تحديثاً)
         receiving_patients = None
         trans = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 
@@ -92,14 +87,12 @@ def secretary_login_code(
             except Exception:
                 return None
 
-        # الخطوة 1: Doctor.id == clinic_id
         doc_by_id = db.query(models.Doctor).filter(models.Doctor.id == int(secretary.clinic_id)).first()
         if doc_by_id:
             rp_val = _parse_rp_from_profile(doc_by_id.profile_json)
             if rp_val is not None:
                 receiving_patients = rp_val
         
-        # الخطوة 2 (fallback): البحث بحسب general_info.clinic_id مع أفضلية الاسم ثم الأحدث
         if receiving_patients is None:
             doctors = db.query(models.Doctor).filter(models.Doctor.profile_json.isnot(None)).all()
             best = None  # (name_match: bool, updated_at_ts: float, rp: int)
@@ -130,7 +123,6 @@ def secretary_login_code(
                 rp_val = _parse_rp_from_profile(raw)
                 if rp_val is None:
                     continue
-                # أولوية مطابقة الاسم، ثم الأحدث تحديثاً
                 doc_name_norm = str(gi.get("doctor_name") or doc.name or "").strip()
                 name_match = (doc_name_norm == sec_name_norm and sec_name_norm != "")
                 updated_ts = (doc.updated_at.timestamp() if getattr(doc, "updated_at", None) else 0.0)
@@ -166,7 +158,6 @@ def get_secretary_info(
 ):
     """الحصول على معلومات السكرتير - يقبل S-{secretary_code} أو {secretary_code}"""
     
-    # Parse secretary code from both formats
     if secretary_formatted_id.startswith("S-"):
         try:
             secretary_code = int(secretary_formatted_id.split("-")[1])
@@ -178,13 +169,11 @@ def get_secretary_info(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid secretary_id format")
     
-    # Lookup by secretary_id (activation code)
     secretary = db.query(models.Secretary).filter_by(secretary_id=secretary_code).first()
     
     if not secretary:
         raise HTTPException(status_code=404, detail=f"Secretary not found")
     
-    # Format secretary_id as S-{clinic_id}
     formatted_id = f"S-{secretary.clinic_id}"
     
     return {
@@ -213,7 +202,6 @@ def toggle_secretary_status(
     if secretary_status is None or not isinstance(secretary_status, bool):
         raise HTTPException(status_code=400, detail="secretary_status must be true or false")
     
-    # Parse secretary code - accept both int and string formats
     if isinstance(secretary_formatted_id, int):
         secretary_code = secretary_formatted_id
     elif isinstance(secretary_formatted_id, str):
@@ -230,7 +218,6 @@ def toggle_secretary_status(
     else:
         raise HTTPException(status_code=400, detail="secretary_id must be int or string")
     
-    # Lookup by secretary_id (activation code)
     secretary = db.query(models.Secretary).filter_by(secretary_id=secretary_code).first()
     
     if not secretary:

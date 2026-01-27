@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from __future__ import annotations
 import json
 import re
@@ -22,10 +23,7 @@ from .cache import cache
 
 router = APIRouter(prefix="/api", tags=["Doctors"])
 
-# Unified Specializations Mapping - نفس IDs لكل المنصات (iOS & Android)
-# IDs متطابقة مع Swift enum في iOS
 SPEC_NAME_TO_ID = {
-    # العربية
     "طبيب عام": 1,
     "الجهاز الهضمي": 2,
     "الصدرية والقلبية": 3,
@@ -64,7 +62,6 @@ SPEC_NAME_TO_ID = {
     "ذكورة وعقم وأطفال أنابيب": 26,
     "أخرى": 27,
     "مختلف": 27,
-    # English variations
     "General": 1,
     "general": 1,
     "Others": 27,
@@ -119,7 +116,6 @@ def _is_english_only(text: str) -> bool:
     """Check if text contains only English letters, numbers, spaces, and common punctuation"""
     if not text:
         return True
-    # Allow: letters, numbers, spaces, dots, commas, hyphens, parentheses, apostrophes
     allowed_pattern = re.compile(r'^[a-zA-Z0-9\s.,\-()\']+$')
     return bool(allowed_pattern.match(text))
 
@@ -137,7 +133,6 @@ def _validate_certifications(certifications: Any) -> List[str]:
         if not cert_clean:
             continue
         if not _is_english_only(cert_clean):
-            # Skip non-English certifications
             continue
         valid_certs.append(cert_clean)
     
@@ -210,7 +205,6 @@ def _denormalize_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     phone = g.get("doctor_phone_number") or None
     experience = _safe_int(g.get("experience_years"))
     patients = _safe_int(g.get("number_patients_treated"))
-    # دعم المفتاح الجديد account_status بالإضافة إلى accountStatus القديم
     status_bool = _safe_bool(g.get("account_status"), default=None)
     if status_bool is None:
         status_bool = _safe_bool(g.get("accountStatus"), default=True)
@@ -220,7 +214,6 @@ def _denormalize_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(specs, list) and specs:
         first = specs[0]
         if isinstance(first, dict):
-            # يدعم الشكل الجديد [{id,name}]
             specialty = str(first.get("name") or "").strip() or None
         else:
             specialty = str(first)
@@ -265,22 +258,20 @@ def list_doctors(
     expMin: Optional[int] = None,
     expMax: Optional[int] = None,
     page: int = 1,
-    pageSize: int = 100,  # زيادة الافتراضي إلى 100
+    pageSize: int = 100,
     sort: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    # إنشاء cache key فريد بناءً على المعاملات
     platform = request.headers.get("X-Platform", "").lower()
     cache_key = f"doctors:list:{platform}:{q}:{specialty}:{status}:{expMin}:{expMax}:{page}:{pageSize}:{sort}"
     
-    # محاولة الحصول من الكاش
     cached_result = cache.get(cache_key)
     if cached_result is not None:
         return cached_result
     
     _ensure_seed(db)
     page = max(1, page)
-    pageSize = max(1, min(pageSize, 500))  # زيادة الحد الأقصى إلى 500
+    pageSize = max(1, min(pageSize, 500))
 
     query = db.query(models.Doctor)
     if q:
@@ -324,7 +315,6 @@ def list_doctors(
 
     items: List[Dict[str, Any]] = []
     for r in rows:
-        # base fields
         item: Dict[str, Any] = {
             "id": r.id,
             "name": r.name,
@@ -337,7 +327,6 @@ def list_doctors(
             "phone": r.phone,
         }
 
-        # Try parse specializations from profile_json
         specs_full: List[Dict[str, Any]] = []
         dents_add: List[Dict[str, Any]] = []
         plastic_add: List[Dict[str, Any]] = []
@@ -353,18 +342,14 @@ def list_doctors(
                         if isinstance(s, dict):
                             nm = s.get("name")
                             if isinstance(nm, str) and nm.strip():
-                                # محاولة الحصول على ID من البيانات المخزنة
                                 sid = _safe_int(s.get("id"))
-                                # إذا لم يكن موجود، استخدم mapping لتوليده تلقائياً
                                 if sid is None:
                                     sid = SPEC_NAME_TO_ID.get(nm.strip())
                                 specs_full.append({"id": sid, "name": nm.strip()})
                         else:
                             nm = str(s).strip()
-                            # استخدم mapping لتوليد ID من الاسم
                             sid = SPEC_NAME_TO_ID.get(nm)
                             specs_full.append({"id": sid, "name": nm})
-                # existing additions if present
                 dr = pobj.get("dents_addition")
                 if isinstance(dr, list):
                     for it in dr:
@@ -386,7 +371,6 @@ def list_doctors(
                             nm = str(it)
                             plastic_add.append({"id": None, "name": nm})
 
-        # Decide main category behavior
         has_dentistry_main = any(_norm_name(s.get("name")) in dentistry_mains for s in specs_full)
         has_plastic_main = any(_norm_name(s.get("name")) in plastic_mains for s in specs_full)
 
@@ -412,7 +396,6 @@ def list_doctors(
                         seen[key] = True
                 return out
 
-            # Only transform when exactly one main category is present
             if has_dentistry_main and not has_plastic_main:
                 item["specializations"] = [s for s in mains if _norm_name(s.get("name")) in dentistry_mains]
                 dents_add = _merge(dents_add, extras)
@@ -424,15 +407,12 @@ def list_doctors(
                 if plastic_add:
                     item["plastic_addition"] = plastic_add
             else:
-                # keep full list when no single main dominates
                 item["specializations"] = specs_full
         else:
-            # ensure the key exists as empty list when no data
             item["specializations"] = []
 
         items.append(item)
     
-    # حفظ النتيجة في الكاش لمدة دقيقتين
     result = {"items": items, "total": total, "page": page, "pageSize": pageSize}
     cache.set(cache_key, result, ttl=120)
     
@@ -453,13 +433,11 @@ def get_doctors_count_stats(db: Session = Depends(get_db), _: None = Depends(req
             "inactive_list": [...]
         }
     """
-    # محاولة الحصول من الكاش
     cache_key = "doctors:stats:count"
     cached_result = cache.get(cache_key)
     if cached_result is not None:
         return cached_result
     
-    # جلب جميع الدكاترة
     all_doctors = db.query(models.Doctor).all()
     
     active_list = []
@@ -487,7 +465,6 @@ def get_doctors_count_stats(db: Session = Depends(get_db), _: None = Depends(req
         "inactive_list": inactive_list
     }
     
-    # حفظ في الكاش لمدة 5 دقائق
     cache.set(cache_key, result, ttl=300)
     
     return result
@@ -495,10 +472,8 @@ def get_doctors_count_stats(db: Session = Depends(get_db), _: None = Depends(req
 
 @router.get("/doctors/{doctor_id}")
 def get_doctor(doctor_id: int, request: Request, secret_ok: None = Depends(require_profile_secret), db: Session = Depends(get_db)):
-    # تحقق من المنصة من الـ header
     platform = request.headers.get("X-Platform", "").lower()
     
-    # تحقق من الكاش أولاً
     cache_key = f"doctor:single:{doctor_id}:{platform}"
     cached_result = cache.get(cache_key)
     if cached_result is not None:
@@ -506,26 +481,22 @@ def get_doctor(doctor_id: int, request: Request, secret_ok: None = Depends(requi
     
     r = db.query(models.Doctor).filter_by(id=doctor_id).first()
     if not r:
-        # سلوك صارم: هذا المسار يبحث فقط بالمعرّف الأساسي لسجل doctors
         return error("not_found", "Doctor not found", 404)
     try:
         profile = json.loads(r.profile_json) if r.profile_json else DEFAULT_PROFILE
     except Exception:
         profile = DEFAULT_PROFILE
     
-    # حذف accountStatus المكرر فقط، نحتفظ بـ account_status كما هو مخزن
     if isinstance(profile, dict):
         g = profile.get("general_info")
         if isinstance(g, dict):
             g.pop("accountStatus", None)
         
-        # معالجة التخصصات لإضافة IDs
         raw_specs = profile.get("specializations")
         if isinstance(raw_specs, list):
             specs_with_ids = []
             for s in raw_specs:
                 if isinstance(s, dict):
-                    # إذا كان dict بالفعل، تحقق من وجود ID
                     nm = s.get("name")
                     if isinstance(nm, str) and nm.strip():
                         sid = _safe_int(s.get("id"))
@@ -533,26 +504,22 @@ def get_doctor(doctor_id: int, request: Request, secret_ok: None = Depends(requi
                             sid = SPEC_NAME_TO_ID.get(nm.strip())
                         specs_with_ids.append({"id": sid, "name": nm.strip()})
                 else:
-                    # إذا كان string، حوله إلى dict مع ID
                     nm = str(s).strip()
                     sid = SPEC_NAME_TO_ID.get(nm)
                     specs_with_ids.append({"id": sid, "name": nm})
             profile["specializations"] = specs_with_ids
     
-    # account block
     acc = {
         "email": r.email,
         "phone": r.phone,
         "status": r.status,
     }
-    # أعِد كل الحقول كما هي بالإضافة إلى account
     profile_out: Dict[str, Any] = {}
     if isinstance(profile, dict):
         profile_out = dict(profile)
     profile_out["account"] = acc
     
     result = {"id": r.id, "profile": profile_out}
-    # حفظ في الكاش لمدة 5 دقائق
     cache.set(cache_key, result, ttl=300)
     
     return result
@@ -599,7 +566,6 @@ def get_doctor_profile_api(doctor_id: int, secret_ok: None = Depends(require_pro
     except Exception:
         profile = DEFAULT_PROFILE
     
-    # حذف accountStatus المكرر فقط، نحتفظ بـ account_status كما هو مخزن
     if isinstance(profile, dict):
         g = profile.get("general_info")
         if isinstance(g, dict):
@@ -629,7 +595,6 @@ async def update_doctor(doctor_id: int, request: Request, db: Session = Depends(
         profile = json.loads(r.profile_json) if r.profile_json else {}
     except Exception:
         profile = {}
-    # دمج مرن: دعم كل المفاتيح العليا، مع معالجة خاصة لحقل account لتحديث الأعمدة المنزوعة التطبيع
     for k, v in patch.items():
         if k == "account" and isinstance(v, dict):
             if "email" in v:
@@ -639,14 +604,12 @@ async def update_doctor(doctor_id: int, request: Request, db: Session = Depends(
             if "status" in v:
                 r.status = v["status"] or r.status
             continue
-        # دمج dicts بشكل سطحي، وضع باقي الأنواع كما هي
         if isinstance(v, dict):
             base = profile.get(k) if isinstance(profile.get(k), dict) else {}
             base.update(v)
             profile[k] = base
         else:
             profile[k] = v
-    # also update denormalized columns from general_info/specializations
     den = _denormalize_profile({**profile})
     if den.get("name"):
         r.name = den["name"]
@@ -662,7 +625,6 @@ async def update_doctor(doctor_id: int, request: Request, db: Session = Depends(
     r.profile_json = json.dumps(profile, ensure_ascii=False)
     db.commit()
     
-    # مسح كاش هذا الطبيب وقوائم الأطباء
     cache.delete(f"doctor:single:{doctor_id}")
     cache.delete_pattern("doctors:list:")
     
@@ -680,7 +642,6 @@ def update_doctor_status(doctor_id: int, body: Dict[str, Any], db: Session = Dep
     r.status = "active" if active else "inactive"
     db.commit()
     
-    # مسح الكاش بعد تغيير الحالة
     cache.delete(f"doctor:single:{doctor_id}")
     cache.delete_pattern("doctors:list:")
     
@@ -695,7 +656,6 @@ def delete_doctor(doctor_id: int, db: Session = Depends(get_db)):
     db.delete(r)
     db.commit()
     
-    # مسح الكاش بعد حذف الطبيب
     cache.delete(f"doctor:single:{doctor_id}")
     cache.delete_pattern("doctors:list:")
     
@@ -751,7 +711,6 @@ async def create_doctor(request: Request, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(row)
     
-    # مسح الكاش بعد إضافة طبيب جديد
     cache.delete_pattern("doctors:list:")
     
     return {"id": row.id}
@@ -791,7 +750,6 @@ def list_clinics(
         dname = g.get("doctor_name") if isinstance(g, dict) else None
         if not dname:
             dname = r.name
-        # try obtain image url from denormalized column or profile JSON
         img_url: Optional[str] = r.image_url or None
         if not img_url and isinstance(obj, dict):
             def _pick_url(d: Dict[str, Any]) -> Optional[str]:
@@ -805,7 +763,6 @@ def list_clinics(
                 gg = obj.get("general_info")
                 if isinstance(gg, dict):
                     img_url = _pick_url(gg)
-        # specializations with ids if available
         specs_raw = obj.get("specializations") if isinstance(obj, dict) else None
         specs_full: List[Dict[str, Any]] = []
         if isinstance(specs_raw, list):
@@ -820,9 +777,7 @@ def list_clinics(
                     sid = SPEC_NAME_TO_ID.get(nm.strip())
                     specs_full.append({"id": sid, "name": nm})
 
-        # (no additions returned in this endpoint)
 
-        # derive additions from specializations if a main category is present
         def _norm_name(x: str) -> str:
             return (x or "").strip()
 
@@ -839,15 +794,11 @@ def list_clinics(
                 if n in dentistry_mains or n in plastic_mains:
                     mains.append(s)
 
-            # Only transform when exactly one main category is present to avoid ambiguity
             if has_dentistry_main and not has_plastic_main:
                 specs_full = [s for s in mains if _norm_name(s.get("name")) in dentistry_mains]
             elif has_plastic_main and not has_dentistry_main:
                 specs_full = [s for s in mains if _norm_name(s.get("name")) in plastic_mains]
-            # else: keep specs_full as-is
 
-        # Build item in required key order
-        # Read actual status from doctor.status column (not forced to "active")
         actual_status = r.status if r.status else "active"
         item: Dict[str, Any] = {
             "clinic_id": cid,
@@ -857,7 +808,6 @@ def list_clinics(
         if img_url:
             item["profile_image_URL"] = img_url
         
-        # إضافة المحافظة (state) من general_info.clinic_states
         clinic_state = g.get("clinic_states") if isinstance(g, dict) else None
         if clinic_state:
             item["state"] = clinic_state
@@ -882,13 +832,11 @@ def create_secretary_code(
     
     def generate_unique_secretary_id() -> int:
         """Generate a unique 6-digit secretary ID that doesn't exist in the database."""
-        max_attempts = 100  # Prevent infinite loop in unlikely case
+        max_attempts = 100
         
         for _ in range(max_attempts):
-            # Generate 6-digit number (100000 to 999999)
             secretary_id = random.randint(100000, 999999)
             
-            # Check if this ID already exists
             existing = db.query(models.Secretary).filter(
                 models.Secretary.secretary_id == secretary_id
             ).first()
@@ -896,17 +844,14 @@ def create_secretary_code(
             if not existing:
                 return secretary_id
         
-        # If we couldn't generate a unique ID after max_attempts, raise an error
         raise HTTPException(
             status_code=500, 
             detail="Unable to generate unique secretary ID. Please try again."
         )
     
     try:
-        # Generate unique secretary ID
         secretary_id = generate_unique_secretary_id()
         
-        # Create new secretary record
         new_secretary = models.Secretary(
             secretary_id=secretary_id,
             clinic_id=request.clinic_id,
@@ -915,12 +860,10 @@ def create_secretary_code(
             created_date=request.created_date
         )
         
-        # Add to database
         db.add(new_secretary)
         db.commit()
         db.refresh(new_secretary)
         
-        # Return response
         return schemas.SecretaryCodeResponse(
             secretary_id=secretary_id,
             result="successfuly"
@@ -943,7 +886,6 @@ def cleanup_test_doctors(
     
     test_ids_to_delete = []
     
-    # 1. حذف الأسماء التجريبية الواضحة
     test_names = [
         'xxx', 'aaaa', 'ewew', 'zzz', 'sss', 'ssss', 'eded', 'wewe', 'ed', 'wee',
         'gtgt', 'dwd', 'dfddf', 'sefew', 'tg', 'fdef', 'sssq', 'qwqw', 'wdwd',
@@ -958,42 +900,35 @@ def cleanup_test_doctors(
         for d in doctors:
             test_ids_to_delete.append(d.id)
     
-    # 2. حذف Dr. Test المكررة (نحتفظ بأول واحدة فقط)
     dr_test = db.query(models.Doctor).filter(models.Doctor.name == "Dr. Test").all()
     if len(dr_test) > 1:
         for d in dr_test[1:]:
             test_ids_to_delete.append(d.id)
     
-    # 3. حذف Dr. Dareen المكررة (نحتفظ بأول واحدة فقط)
     dr_dareen = db.query(models.Doctor).filter(models.Doctor.name == "Dr. Dareen").all()
     if len(dr_dareen) > 1:
         for d in dr_dareen[1:]:
             test_ids_to_delete.append(d.id)
     
-    # 4. حذف أحمد كامل المكرر
     ahmad = db.query(models.Doctor).filter(models.Doctor.name == "أحمد كامل").all()
     if len(ahmad) > 1:
         for d in ahmad[1:]:
             test_ids_to_delete.append(d.id)
     
-    # 5. حذف test IDs المعروفة
     test_ids = [90, 91, 62, 7000, 7777, 8888, 9999, 400, 500, 408, 409, 83]
     for tid in test_ids:
         if tid not in test_ids_to_delete:
             test_ids_to_delete.append(tid)
     
-    # تنفيذ الحذف
     deleted_count = 0
-    for tid in set(test_ids_to_delete):  # استخدام set لتجنب التكرار
+    for tid in set(test_ids_to_delete):
         count = db.query(models.Doctor).filter(models.Doctor.id == tid).delete()
         deleted_count += count
     
     db.commit()
     
-    # مسح الكاش
     cache.delete_pattern("doctors:*")
     
-    # الإحصائيات النهائية
     total = db.query(models.Doctor).count()
     active = db.query(models.Doctor).filter(models.Doctor.status == "active").count()
     

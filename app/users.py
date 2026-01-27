@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from io import StringIO
 import csv
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,7 +10,6 @@ import secrets
 import importlib
 from typing import Any
  
-# Dynamically import pyotp to avoid static analysis import errors; fail gracefully at runtime if missing
 try:
     pyotp: Any = importlib.import_module("pyotp")  # type: ignore
 except Exception:
@@ -44,7 +44,6 @@ def get_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
 
     t = data.get("type")
     if t == "access":
-        # تحقق من القائمة السوداء وحالة الأدمن
         jti = data.get("jti")
         sub = data.get("sub")
         if not sub:
@@ -56,7 +55,6 @@ def get_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
         admin = db.query(models.Admin).filter_by(id=int(sub)).first()
         if not admin or not getattr(admin, "is_active", True):
             raise HTTPException(status_code=401, detail="المستخدم غير متاح")
-        # اشتق الدور والصلاحيات الافتراضية للأدمن
         if getattr(admin, "is_superuser", False):
             role_key = "super-admin"
             perms = all_permissions()
@@ -81,7 +79,6 @@ def get_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
         if not sub or not str(sub).startswith("staff:"):
             raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
         staff_id = int(str(sub).split(":", 1)[1])
-        # حمّل أعمدة آمنة فقط
         from sqlalchemy.orm import load_only
         s = (
             db.query(models.Staff)
@@ -98,7 +95,6 @@ def get_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
         )
         if not s or (s.status or "active") != "active":
             raise HTTPException(status_code=401, detail="المستخدم غير متاح")
-        # اجمع صلاحيات الدور + صلاحيات مباشرة للموظف
         perms: set[str] = set()
         if s.role_id:
             rps = db.query(models.RolePermission).filter_by(role_id=s.role_id).all()
@@ -118,7 +114,6 @@ def get_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
             permissions=sorted(perms),
         )
 
-    # نوع غير متوقع
     raise HTTPException(status_code=401, detail="نوع الرمز غير صحيح")
 
 
@@ -129,7 +124,6 @@ def update_me(payload: schemas.AdminUpdate, db: Session = Depends(get_db), curre
         current_admin.name = payload.name
         changed = True
     if payload.email is not None:
-        # تأكد من عدم تكرار البريد
         exists = db.query(models.Admin).filter(models.Admin.email == payload.email, models.Admin.id != current_admin.id).first()
         if exists:
             raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
@@ -144,7 +138,6 @@ def update_me(payload: schemas.AdminUpdate, db: Session = Depends(get_db), curre
 
 @router.get("/me/export")
 def export_me(current_admin: models.Admin = Depends(get_current_admin)):
-    # صدر البيانات كـ CSV نصي بسيط
     output = StringIO()
     writer = csv.DictWriter(output, fieldnames=["id", "name", "email", "is_active", "is_superuser"]) 
     writer.writeheader()
@@ -160,7 +153,6 @@ def export_me(current_admin: models.Admin = Depends(get_current_admin)):
 
 @router.patch("/me/security")
 def update_security(payload: schemas.SecurityUpdate, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    # إلغاء الجلسات فقط (أزلنا 2FA والتفضيلات)
     if payload.revoke_all_sessions:
         db.query(models.RefreshToken).filter_by(admin_id=current_admin.id, revoked=False).update({models.RefreshToken.revoked: True})
         db.commit()
@@ -172,17 +164,14 @@ def get_security(current_admin: models.Admin = Depends(get_current_admin)):
     return {}
 
 
-# تم حذف مسارات 2FA بالكامل
 
 
-# ===== Sessions =====
 @router.get("/me/sessions", response_model=list[schemas.SessionOut])
 def list_sessions(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     """لأدمن: يعيد الجلسات النشطة. لموظف: يعيد قائمة فارغة لتجنّب 401 عند التحديث."""
     try:
         payload = decode_token(token)
     except Exception:
-        # في الحالات الغير متوقعة، لا نرمي 401 هنا لتجنّب تسجيل الخروج القسري
         return []
     t = payload.get("type")
     if t == "staff":
@@ -212,7 +201,6 @@ def list_sessions(db: Session = Depends(get_db), token: str = Depends(oauth2_sch
     return out
 
 
-# ===== Recovery Codes =====
 def _generate_recovery_codes(n: int = 10) -> list[str]:
     return [secrets.token_hex(4) + "-" + secrets.token_hex(4) for _ in range(n)]
 
@@ -226,7 +214,6 @@ def get_recovery_codes(current_admin: models.Admin = Depends(get_current_admin),
 
 @router.post("/me/recovery-codes", response_model=schemas.RecoveryCodesResponse)
 def rotate_recovery_codes(rotate: bool | None = None, current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
-    # احذف القديمة ثم أنشئ مجموعة جديدة
     db.query(models.RecoveryCode).filter_by(admin_id=current_admin.id).delete()
     codes = _generate_recovery_codes(10)
     for c in codes:

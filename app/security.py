@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -10,14 +11,11 @@ from dotenv import load_dotenv
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-# حمّل المتغيرات من .env (بدون الكتابة فوق الموجود)
 load_dotenv(override=False)
 
-# إعدادات الأمان من المتغيرات البيئية
 SECRET_KEY = os.getenv("SECRET_KEY") or "dev-secret-change-me"
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
-# معالجة آمنة لقيم الوقت
 try:
     ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 except (ValueError, TypeError):
@@ -36,13 +34,11 @@ pwd_context = CryptContext(
 
 
 def get_password_hash(password: str) -> str:
-    # تقليم كلمة المرور إلى 72 حرف (أكثر من كافي لـ 72 بايت)
     password = password[:72] if len(password) > 72 else password
     return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # تحويل كلمة المرور إلى bytes وقصها إلى 72 بايت (نفس الطريقة المستخدمة في التسجيل)
     password_bytes = plain_password.encode('utf-8')[:72]
     return pwd_context.verify(password_bytes, hashed_password)
 

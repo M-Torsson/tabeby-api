@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 import uuid
 from datetime import datetime
 from typing import Optional, List
@@ -33,14 +34,11 @@ def list_my_activity(
     status: Optional[str] = None,
     order: Optional[str] = Query(default="desc", pattern="^(asc|desc)$"),
 ):
-    # فلترة حسب المستخدم
     q = db.query(models.Activity).filter(models.Activity.admin_id == current_admin.id)
 
-    # since
     if since:
         q = q.filter(models.Activity.at >= since)
 
-    # types/status
     types_list = _parse_csv_list(types)
     status_list = _parse_csv_list(status)
     if types_list:
@@ -48,7 +46,6 @@ def list_my_activity(
     if status_list:
         q = q.filter(models.Activity.status.in_(status_list))
 
-    # ترتيب
     if order == "asc":
         q = q.order_by(models.Activity.at.asc())
     else:
@@ -56,14 +53,11 @@ def list_my_activity(
 
     total = q.count()
 
-    # ترقيم بسيط page/page_size (بدل cursor للتبسيط)
     if cursor:
-        # لم ننفّذ منطق cursor هنا؛ يمكن إضافته لاحقاً
         pass
 
     items = q.offset((page - 1) * page_size).limit(page_size).all()
 
-    # خرّج العناصر
     out_items = [
         schemas.ActivityOut.model_validate(it, from_attributes=True) for it in items if it.type != "backup_completed"
     ]
@@ -73,14 +67,10 @@ def list_my_activity(
 
 @router.post("/activity", response_model=schemas.ActivityOut, status_code=201)
 def create_activity(payload: schemas.ActivityCreate, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    # حدد المستخدم الهدف: البريد المُرسل أو المستخدم الحالي
     target_admin = current_admin
     if payload.email and payload.email != current_admin.email:
-        # السماح فقط للمستخدم نفسه (أو يمكن توسيع بصلاحيات إدارية لاحقاً)
-        # حالياً لو خالف، نرجع 403
         raise HTTPException(status_code=403, detail="لا يمكن إنشاء حدث لمستخدم آخر")
 
-    # تحقق من type/status ضمن القوائم (يضمنها Pydantic أيضاً)
     now = datetime.utcnow()
     at = payload.at or now
 

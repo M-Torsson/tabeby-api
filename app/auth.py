@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from datetime import datetime, timezone, timedelta
 import uuid
 import os
@@ -53,12 +54,10 @@ def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = Depends
     if not jti or not admin_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="رمز ناقص البيانات")
 
-    # رفض الرمز إن كان في القائمة السوداء
     bl = db.query(models.BlacklistedToken).filter_by(jti=jti).first()
     if bl:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="تم تسجيل الخروج")
 
-    # حمّل فقط الأعمدة اللازمة لتجنّب فشل SELECT إذا كانت أعمدة اختيارية غير موجودة في المخطط
     admin = (
         db.query(models.Admin)
         .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.is_active, models.Admin.is_superuser))
@@ -119,7 +118,6 @@ def auth_me(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
         )
         if not s or (s.status or "active") != "active":
             raise HTTPException(status_code=401, detail="المستخدم غير متاح")
-        # اجمع صلاحيات الدور الافتراضي لعرضها (اختياري)
         try:
             perms = default_roles().get(s.role_key or "staff", {}).get("permissions", [])
         except Exception:
@@ -154,7 +152,6 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
         "password": "your_password"
     }
     """
-    # التحقق من Doctor-Secret
     secret = os.getenv("DOCTOR_PROFILE_SECRET", "")
     provided = request.headers.get("Doctor-Secret")
     if not provided or provided != secret:
@@ -163,19 +160,16 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
     try:
         data = await request.json()
         email = data.get("email", "").strip().lower()
-        password = data.get("password", "")[:72]  # تقليم إلى 72 حرف
+        password = data.get("password", "")[:72]
         
         if not email or not password:
             raise HTTPException(status_code=400, detail="يجب إرسال email و password")
         
-        # البحث عن الأدمن
         admin = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
         
-        # إذا لم يوجد، ارفض
         if not admin:
             raise HTTPException(status_code=401, detail="البريد الإلكتروني غير موجود")
         
-        # تحقق من كلمة المرور مباشرة مع bcrypt
         password_bytes = password.encode('utf-8')[:72]
         if not bcrypt.checkpw(password_bytes, admin.password_hash.encode('utf-8')):
             raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
@@ -183,7 +177,6 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
         if not getattr(admin, "is_active", True):
             raise HTTPException(status_code=401, detail="الحساب غير مفعل")
         
-        # إنشاء access token
         access_data = create_access_token(subject=str(admin.id))
         
         return {
@@ -230,17 +223,14 @@ def create_admin(
     if not name or not email or not password:
         raise HTTPException(status_code=400, detail="يجب إرسال name و email و password")
     
-    # التحقق من أن البريد غير مستخدم
     exists = db.query(models.Admin).filter(func.lower(models.Admin.email) == email).first()
     if exists:
         raise HTTPException(status_code=400, detail="البريد الإلكتروني مستخدم مسبقاً")
     
     try:
-        # تشفير كلمة المرور
         password_bytes = password.encode('utf-8')[:72]
         hashed = bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode('utf-8')
         
-        # إنشاء الأدمن
         admin = models.Admin(
             name=name,
             email=email,
@@ -269,19 +259,16 @@ def create_admin(
 
 @router.post("/logout")
 def logout(current_admin: models.Admin = Depends(get_current_admin), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    # ضع رمز الوصول في القائمة السوداء حتى انتهاء صلاحيته
     payload = decode_token(token)
     jti = payload.get("jti")
     exp = payload.get("exp")
     if jti and exp:
-        # exp من jose عادةً يكون رقم ثانية يونكس
         expires_at = datetime.fromtimestamp(exp, tz=timezone.utc) if isinstance(exp, int) else exp
         exists = db.query(models.BlacklistedToken).filter_by(jti=jti).first()
         if not exists:
             db.add(models.BlacklistedToken(jti=jti, expires_at=expires_at))
             db.commit()
 
-    # ألغِ جميع رموز التحديث للحساب (خيار آمن لتسجيل الخروج الكامل)
     db.query(models.RefreshToken).filter_by(admin_id=current_admin.id, revoked=False).update({models.RefreshToken.revoked: True})
     db.commit()
     return {"message": "تم تسجيل الخروج بنجاح"}
@@ -296,7 +283,6 @@ def change_password(payload: schemas.ChangePasswordRequest, db: Session = Depend
         raise HTTPException(status_code=401, detail="رمز الوصول غير صالح")
     t = data.get("type")
     if t == "access":
-        # أدمن
         admin_id = data.get("sub")
         if not admin_id:
             raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
@@ -310,12 +296,10 @@ def change_password(payload: schemas.ChangePasswordRequest, db: Session = Depend
         db.commit()
         return {"message": "تم تغيير كلمة المرور"}
     elif t == "staff":
-        # موظف
         sub = data.get("sub")
         if not sub or not str(sub).startswith("staff:"):
             raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
         staff_id = int(str(sub).split(":", 1)[1])
-        # تأكد من دعم عمود كلمة المرور
         try:
             cols = db.execute(text("""
                 SELECT column_name FROM information_schema.columns
@@ -326,7 +310,6 @@ def change_password(payload: schemas.ChangePasswordRequest, db: Session = Depend
         except HTTPException:
             raise
         except Exception:
-            # حاول الاستعلام مباشرة؛ إن فشل نعيد خطأ عام
             pass
         row = db.execute(text("SELECT password_hash FROM staff WHERE id=:id"), {"id": staff_id}).first()
         if not row or not row[0]:
@@ -355,7 +338,6 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
     if not jti or not admin_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="رمز ناقص البيانات")
 
-    # تحقق من الرمز في قاعدة البيانات
     from sqlalchemy.orm import load_only
     rt: Optional[models.RefreshToken] = db.query(models.RefreshToken)
     rt = rt.options(
@@ -371,7 +353,6 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
     if not rt or rt.revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="تم إلغاء الرمز")
 
-    # افحص انتهاء الصلاحية
     if isinstance(rt.expires_at, datetime) and rt.expires_at.replace(tzinfo=None) < datetime.utcnow():
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="انتهت صلاحية الرمز")
 
@@ -384,7 +365,6 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
     if not admin or not admin.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="المستخدم غير متاح")
 
-    # دوّر الرمز: ألغِ القديم وأنشئ جديداً
     rt.revoked = True
     access = create_access_token(subject=str(admin.id))
     new_refresh = create_refresh_token(subject=str(admin.id))
@@ -448,22 +428,19 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
     }
 
 
-# ===== Password reset flow =====
 RESET_EXPIRE_MINUTES = int(os.getenv("RESET_TOKEN_EXPIRE_MINUTES", "30"))
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
 
 
 @router.post("/forgot-password")
 def forgot_password(payload: schemas.ForgotPasswordRequest, db: Session = Depends(get_db)):
-    # رد عام دائماً لمنع تسريب وجود البريد
     admin = db.query(models.Admin).filter_by(email=payload.email).first()
     if admin:
-        raw_token = uuid.uuid4().hex + uuid.uuid4().hex  # 64-hex
+        raw_token = uuid.uuid4().hex + uuid.uuid4().hex
         expires_at = datetime.utcnow() + timedelta(minutes=RESET_EXPIRE_MINUTES)
         db.add(models.PasswordResetToken(token=raw_token, admin_id=admin.id, expires_at=expires_at, used=False))
         db.commit()
         reset_link = f"{FRONTEND_BASE_URL}/auth/reset?token={raw_token}"
-        # أرسل البريد إن كان SMTP مُعداً
         sent = send_password_reset(payload.email, reset_link)
     return {"status": "sent"}
 
@@ -501,7 +478,6 @@ def reset_password(payload: schemas.ResetPasswordRequest, db: Session = Depends(
     if not admin:
         raise HTTPException(status_code=400, detail="invalid")
 
-    # تعيين كلمة المرور الجديدة وإبطال الجلسات
     admin.password_hash = get_password_hash(payload.new_password)
     db.query(models.RefreshToken).filter_by(admin_id=admin.id, revoked=False).update({models.RefreshToken.revoked: True})
     prt.used = True

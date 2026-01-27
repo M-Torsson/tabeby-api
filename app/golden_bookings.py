@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from __future__ import annotations
 import json
 import random
@@ -15,7 +16,6 @@ from .database import SessionLocal
 from . import models, schemas
 from .doctors import require_profile_secret
 
-# خريطة تحويل الحالات من إنجليزي إلى عربي
 STATUS_MAP = {
     "booked": "تم الحجز",
     "served": "تمت المعاينة",
@@ -56,13 +56,11 @@ def create_golden_table(
     
     first_date = list(payload.days.keys())[0]
     
-    # البحث عن جدول موجود
     gt = db.query(models.GoldenBookingTable).filter(
         models.GoldenBookingTable.clinic_id == payload.clinic_id
     ).first()
     
     if gt:
-        # دمج الأيام الجديدة مع الموجودة
         try:
             existing_days = json.loads(gt.days_json) if gt.days_json else {}
         except Exception:
@@ -72,7 +70,6 @@ def create_golden_table(
         db.add(gt)
         db.commit()
     else:
-        # إنشاء جدول جديد
         gt = models.GoldenBookingTable(
             clinic_id=payload.clinic_id,
             days_json=json.dumps(payload.days, ensure_ascii=False)
@@ -80,7 +77,6 @@ def create_golden_table(
         db.add(gt)
         db.commit()
     
-    # مسح الكاش بعد الإنشاء أو التحديث
     from .cache import cache
     cache_key = f"golden:days:clinic:{payload.clinic_id}"
     cache.delete(cache_key)
@@ -104,12 +100,10 @@ def patient_golden_booking(
     2. auto_assign=False: يحجز في التاريخ المحدد فقط (يفشل إذا كان ممتلئاً)
     """
     
-    # البحث عن الجدول
     gt = db.query(models.GoldenBookingTable).filter(
         models.GoldenBookingTable.clinic_id == payload.clinic_id
     ).first()
     
-    # إذا لم يكن هناك جدول على الإطلاق، ننشئ واحداً
     if not gt:
         gt = models.GoldenBookingTable(
             clinic_id=payload.clinic_id,
@@ -123,7 +117,6 @@ def patient_golden_booking(
     except Exception:
         days = {}
     
-    # التحقق من صيغة التاريخ
     from datetime import datetime as dt, timedelta
     
     try:
@@ -134,13 +127,10 @@ def patient_golden_booking(
     final_date = None
     day_obj = None
     
-    # الوضع 1: الحجز في تاريخ محدد فقط (auto_assign=False)
     if not payload.auto_assign:
         date_str = payload.date
         
-        # التحقق إذا كان اليوم موجوداً
         if date_str not in days:
-            # إنشاء اليوم إذا لم يكن موجوداً
             day_obj = {
                 "source": "patient_app",
                 "status": "open",
@@ -158,14 +148,12 @@ def patient_golden_booking(
             capacity_total = day_obj.get("capacity_total", 5)
             capacity_used = day_obj.get("capacity_used", 0)
             
-            # التحقق من السعة
             if capacity_used >= capacity_total:
                 raise HTTPException(
                     status_code=400, 
                     detail=f"اليوم {date_str} ممتلئ ({capacity_used}/{capacity_total}). جرب تاريخاً آخر أو استخدم auto_assign=true"
                 )
             
-            # التحقق من عدم تكرار patient_id (نتجاهل الحجوزات الملغاة)
             patients = day_obj.get("patients", [])
             if not isinstance(patients, list):
                 patients = []
@@ -185,24 +173,20 @@ def patient_golden_booking(
             
             final_date = date_str
     
-    # الوضع 2: البحث التلقائي عن أقرب يوم متاح (auto_assign=True)
     else:
         current_date = requested_date
-        max_days_to_check = 30  # نتحقق من 30 يوم كحد أقصى
+        max_days_to_check = 30
         
         for _ in range(max_days_to_check):
             date_str = current_date.strftime("%Y-%m-%d")
             
-            # التحقق إذا كان اليوم موجوداً
             if date_str in days:
                 day_obj = days.get(date_str)
                 if isinstance(day_obj, dict):
                     capacity_total = day_obj.get("capacity_total", 5)
                     capacity_used = day_obj.get("capacity_used", 0)
                     
-                    # إذا كان هناك مكان متاح
                     if capacity_used < capacity_total:
-                        # التحقق من عدم تكرار patient_id (نتجاهل الحجوزات الملغاة)
                         patients = day_obj.get("patients", [])
                         if not isinstance(patients, list):
                             patients = []
@@ -218,7 +202,6 @@ def patient_golden_booking(
                             final_date = date_str
                             break
             else:
-                # اليوم غير موجود، ننشئ جدول جديد
                 day_obj = {
                     "source": "patient_app",
                     "status": "open",
@@ -230,7 +213,6 @@ def patient_golden_booking(
                 final_date = date_str
                 break
             
-            # الانتقال لليوم التالي
             current_date += timedelta(days=1)
         
         if final_date is None:
@@ -239,7 +221,6 @@ def patient_golden_booking(
                 detail=f"لا يوجد أيام متاحة خلال الـ {max_days_to_check} يوم القادمة"
             )
     
-    # الآن لدينا final_date و day_obj
     day_obj = days[final_date]
     patients = day_obj.get("patients", [])
     if not isinstance(patients, list):
@@ -247,25 +228,20 @@ def patient_golden_booking(
     
     capacity_total = day_obj.get("capacity_total", 5)
     
-    # حساب عدد الحجوزات النشطة (غير الملغاة) للحصول على التوكن الجديد
     active_patients = [
         p for p in patients 
         if isinstance(p, dict) and p.get("status") not in ("ملغى", "cancelled")
     ]
-    # الحجوزات الذهبية تستخدم توكنات موجبة: 1, 2, 3, ...
     next_token = len(active_patients) + 1
     
-    # جمع الأكواد الموجودة حالياً لليوم
     existing_codes = {
         p.get("code") for p in patients 
         if isinstance(p, dict) and p.get("code")
     }
     
-    # توليد كود فريد
     new_code = _generate_unique_code(existing_codes)
     
-    # تاريخ الحجز بصيغة ISO
-    date_compact = final_date.replace("-", "")  # YYYYMMDD
+    date_compact = final_date.replace("-", "")
     booking_id = f"G-{payload.clinic_id}-{date_compact}-{payload.patient_id}"
     
     created_at = datetime.now(timezone.utc).isoformat()
@@ -281,10 +257,8 @@ def patient_golden_booking(
         "created_at": created_at
     }
     
-    # إضافة الحجز الجديد دائماً في النهاية (الملغى يبقى لكن بدون token)
     patients.append(patient_entry)
     
-    # تحديث السعة المستخدمة = عدد الحجوزات النشطة
     day_obj["capacity_used"] = next_token
     day_obj["patients"] = patients
     
@@ -295,11 +269,9 @@ def patient_golden_booking(
     db.commit()
     db.refresh(gt)
     
-    # حذف الكاش بعد التحديث
     from .cache import cache
     cache.delete_pattern(f"golden:days:clinic:{payload.clinic_id}")
     
-    # رسالة توضح إذا تم الحجز في يوم مختلف
     message = f"تم الحجز بنجاح بأسم: {payload.name}"
     if payload.auto_assign and final_date != payload.date:
         message += f" (تم الحجز في {final_date} لأن {payload.date} كان ممتلئاً)"
@@ -309,11 +281,11 @@ def patient_golden_booking(
         code=new_code,
         booking_id=booking_id,
         token=next_token,
-        capacity_used=next_token,  # السعة = عدد الحجوزات النشطة
+        capacity_used=next_token,
         capacity_total=capacity_total,
         status="تم الحجز",
         clinic_id=payload.clinic_id,
-        date=final_date,  # التاريخ الفعلي للحجز
+        date=final_date,
         patient_id=payload.patient_id
     )
 
@@ -339,16 +311,13 @@ def _clean_days_golden(days: dict) -> dict:
         if not isinstance(d_val, dict):
             cleaned_days[d_key] = d_val
             continue
-        # إزالة inline_next إن وجد
         if "inline_next" in d_val:
             d_val = {k: v for k, v in d_val.items() if k != "inline_next"}
-        # تنظيف بيانات المرضى
         patients = d_val.get("patients")
         if isinstance(patients, list):
             new_list = []
             for p in patients:
                 if isinstance(p, dict):
-                    # إزالة clinic_id و date من بيانات المريض إن كانت موجودة
                     if "clinic_id" in p or "date" in p:
                         p = {k: v for k, v in p.items() if k not in ("clinic_id", "date")}
                 new_list.append(p)
@@ -376,7 +345,6 @@ async def get_golden_booking_days(
 
     wants_sse = stream or ("text/event-stream" in (request.headers.get("accept", "").lower()))
     if not wants_sse:
-        # محاولة الحصول من الكاش أولاً
         from .cache import cache
         cache_key = f"golden:days:clinic:{clinic_id}"
         cached_data = cache.get(cache_key)
@@ -384,18 +352,14 @@ async def get_golden_booking_days(
         if cached_data:
             return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cached_data)
         
-        # إذا لم يوجد في الكاش، اقرأ من Database
         days = _load_days_raw_golden(db, clinic_id)
         cleaned = _clean_days_golden(days)
         
-        # حفظ في الكاش لمدة 30 ثانية
         cache.set(cache_key, cleaned, ttl=30)
         
         return schemas.BookingDaysFullResponse(clinic_id=clinic_id, days=cleaned)
 
     async def event_gen():
-        # لقطة أولية + تحديثات عند تغيّر الهاش + ping دوري
-        # نستخدم session منفصل لكل استعلام لتجنب حبس الاتصالات
         local_db = SessionLocal()
         try:
             days = _load_days_raw_golden(local_db, clinic_id)
@@ -407,11 +371,9 @@ async def get_golden_booking_days(
             start = datetime.now(timezone.utc)
             last_ping = start
             while True:
-                # timeout
                 if (datetime.now(timezone.utc) - start).total_seconds() > timeout:
                     yield "event: bye\ndata: timeout\n\n"
                     break
-                # تحقق دوري للتغيّر - نستخدم session جديد في كل مرة
                 await asyncio.sleep(poll_interval)
                 temp_db = SessionLocal()
                 try:
@@ -424,7 +386,6 @@ async def get_golden_booking_days(
                         yield f"event: update\ndata: {payload}\n\n"
                 finally:
                     temp_db.close()
-                # ping
                 if (datetime.now(timezone.utc) - last_ping).total_seconds() >= heartbeat:
                     last_ping = datetime.now(timezone.utc)
                     yield f"event: ping\ndata: {json.dumps({'ts': last_ping.timestamp()})}\n\n"
@@ -464,20 +425,17 @@ def get_golden_booking_days_old(
     except Exception:
         days = {}
     
-    # تنظيف البيانات (إزالة حقول زائدة إن وجدت)
     cleaned_days: dict = {}
     for d_key in sorted(days.keys()):
         d_val = days.get(d_key)
         if not isinstance(d_val, dict):
             cleaned_days[d_key] = d_val
             continue
-        # إزالة حقول داخلية إن وجدت
         patients = d_val.get("patients")
         if isinstance(patients, list):
             new_list = []
             for p in patients:
                 if isinstance(p, dict):
-                    # إزالة clinic_id و date من بيانات المريض إن كانت موجودة
                     if "clinic_id" in p or "date" in p:
                         p = {k: v for k, v in p.items() if k not in ("clinic_id", "date")}
                 new_list.append(p)
@@ -497,13 +455,11 @@ def save_table_gold(
 
     مشابه لـ save_table العادي لكن للـ Golden Book.
     """
-    # تحقق من الصيغة البسيطة للتاريخ
     try:
         datetime.strptime(payload.table_date, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(status_code=400, detail="صيغة التاريخ غير صحيحة، يجب YYYY-MM-DD")
 
-    # إذا لم تُرسل الحقول سنستخرجها من golden_booking_tables
     cap_total = payload.capacity_total
     cap_served = payload.capacity_served
     cap_cancelled = payload.capacity_cancelled
@@ -522,7 +478,6 @@ def save_table_gold(
         day_obj = days.get(payload.table_date)
         if not isinstance(day_obj, dict):
             raise HTTPException(status_code=404, detail="لا يوجد يوم مطابق في الجدول Golden")
-        # استنتاج البيانات
         if cap_total is None:
             cap_total = day_obj.get("capacity_total") or 0
         plist = day_obj.get("patients") if isinstance(day_obj.get("patients"), list) else []
@@ -557,7 +512,6 @@ def save_table_gold(
         db.add(arch)
     db.commit()
 
-    # حذف اليوم من الجدول الذهبي بعد حفظه في الأرشيف (مثل الحجوزات العادية)
     gt = db.query(models.GoldenBookingTable).filter(
         models.GoldenBookingTable.clinic_id == payload.clinic_id
     ).first()
@@ -568,24 +522,19 @@ def save_table_gold(
         except Exception:
             days = {}
         
-        # حذف اليوم من JSON
         if payload.table_date in days:
             days.pop(payload.table_date)
             
-            # فحص إذا بقيت أيام أخرى (استبعاد المؤرشفة)
             remaining_golden_days = [k for k in days.keys() if not k.startswith("_archived_")]
             
             if not remaining_golden_days:
-                # حذف السجل كاملاً إذا لم يتبق أيام
                 db.delete(gt)
             else:
-                # تحديث الجدول بدون اليوم المحذوف
                 gt.days_json = json.dumps(days, ensure_ascii=False)
                 db.add(gt)
             
             db.commit()
     
-    # مسح الكاش بعد التحديث
     from .cache import cache
     cache_key = f"golden:days:clinic:{payload.clinic_id}"
     cache.delete(cache_key)
@@ -626,34 +575,27 @@ def close_table_gold(
     if not isinstance(day_obj, dict):
         raise HTTPException(status_code=400, detail="بنية اليوم غير صالحة")
 
-    # الخطوة 1: تغيير حالة جميع المرضى إلى "ملغى"
     patients_list = day_obj.get("patients", [])
     for patient in patients_list:
         if isinstance(patient, dict):
-            # تغيير حالة المرضى الذين لم تتم معاينتهم إلى ملغى
             if patient.get("status") not in ("تمت المعاينة", "served"):
                 patient["status"] = "ملغى"
     
     day_obj["patients"] = patients_list
     
-    # تغيير الحالة إلى closed
     day_obj["status"] = "closed"
     days[payload.date] = day_obj
     
-    # حفظ التغيير مؤقتاً (لتسجيل أن اليوم أُغلق)
     gt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(gt)
     db.commit()
 
-    # الخطوة 2: حفظ اليوم في الأرشيف
-    # قراءة البيانات المحدثة من days بعد التعديل
     updated_day = days[payload.date]
     patients_list = updated_day.get("patients", [])
     capacity_total = updated_day.get("capacity_total", 0)
     capacity_served = sum(1 for p in patients_list if isinstance(p, dict) and p.get("status") in ("تمت المعاينة", "served"))
     capacity_cancelled = sum(1 for p in patients_list if isinstance(p, dict) and p.get("status") in ("ملغى", "cancelled"))
     
-    # التحقق إذا كان اليوم موجود في الأرشيف
     existing = (
         db.query(models.GoldenBookingArchive)
         .filter(models.GoldenBookingArchive.clinic_id == payload.clinic_id,
@@ -662,14 +604,12 @@ def close_table_gold(
     )
     
     if existing:
-        # تحديث الأرشيف الموجود
         existing.capacity_total = capacity_total
         existing.capacity_served = capacity_served
         existing.capacity_cancelled = capacity_cancelled
         existing.patients_json = json.dumps(patients_list, ensure_ascii=False)
         db.add(existing)
     else:
-        # إنشاء سجل جديد في الأرشيف
         arch = models.GoldenBookingArchive(
             clinic_id=payload.clinic_id,
             table_date=payload.date,
@@ -681,18 +621,14 @@ def close_table_gold(
         db.add(arch)
     db.commit()
 
-    # الخطوة 3: حذف اليوم من الجدول
     days.pop(payload.date)
     
-    # استبعاد المفاتيح المؤرشفة من العد
     remaining_golden_days = [k for k in days.keys() if not k.startswith("_archived_")]
     
     if not remaining_golden_days:
-        # حذف السجل كاملاً إذا لم يتبق أيام
         db.delete(gt)
         db.commit()
         
-        # مسح الكاش بعد الحذف
         from .cache import cache
         cache_key = f"golden:days:clinic:{payload.clinic_id}"
         cache.delete(cache_key)
@@ -702,12 +638,10 @@ def close_table_gold(
             removed_all=True
         )
     
-    # تحديث السجل بعد الحذف
     gt.days_json = json.dumps(days, ensure_ascii=False)
     db.add(gt)
     db.commit()
     
-    # مسح الكاش بعد التحديث
     from .cache import cache
     cache_key = f"golden:days:clinic:{payload.clinic_id}"
     cache.delete(cache_key)
@@ -737,7 +671,6 @@ def edit_patient_gold_booking(
     if len(parts) < 4:
         raise HTTPException(status_code=400, detail="booking_id غير صالح")
     
-    # الصيغة المتوقعة: G-clinicId-YYYYMMDD-patient_id
     date_compact = parts[2]
     if len(date_compact) != 8 or not date_compact.isdigit():
         raise HTTPException(status_code=400, detail="جزء التاريخ داخل booking_id غير صالح")
@@ -769,15 +702,11 @@ def edit_patient_gold_booking(
     old_status = None
     patient_id_found = None
     
-    # البحث عن الحجز: إذا أُرسل token نبحث بـ booking_id + token (الحجز النشط فقط)
-    # وإلا نبحث بـ booking_id فقط
     for idx, p in enumerate(plist):
         if isinstance(p, dict):
-            # التحقق من booking_id
             if p.get("booking_id") != booking_id:
                 continue
             
-            # إذا أُرسل token، نتحقق منه أيضاً (للحجز النشط فقط)
             if payload.token is not None:
                 if p.get("token") == payload.token:
                     target_index = idx
@@ -785,7 +714,6 @@ def edit_patient_gold_booking(
                     patient_id_found = p.get("patient_id")
                     break
             else:
-                # بدون token، نأخذ أول مطابقة
                 target_index = idx
                 old_status = p.get("status")
                 patient_id_found = p.get("patient_id")
@@ -797,24 +725,17 @@ def edit_patient_gold_booking(
         else:
             raise HTTPException(status_code=404, detail="الحجز الذهبي غير موجود داخل هذا التاريخ")
 
-    # تحديث الحالة
     cancellation_statuses = ["ملغى", "الغاء الحجز", "cancelled"]
     if payload.status in cancellation_statuses or normalized_status in cancellation_statuses:
-        # للحجوزات الذهبية: حذف الحجز الملغي وإعادة ترقيم الباقي
         
-        # حذف الحجز الملغي من القائمة
         plist.pop(target_index)
         
-        # إعادة ترقيم الحجوزات المتبقية بأرقام موجبة متسلسلة (1, 2, 3, ...)
-        # ملاحظة: booking_id للحجوزات الذهبية يعتمد على patient_id ولا يتغير
         for idx, p in enumerate(plist, start=1):
             if isinstance(p, dict):
                 p["token"] = idx
         
-        # تحديث capacity_used
         day_obj["capacity_used"] = len(plist)
     else:
-        # تحديث الحالة - استخدام القيمة المُرسلة مباشرة
         plist[target_index]["status"] = payload.status
 
     day_obj["patients"] = plist
@@ -825,7 +746,6 @@ def edit_patient_gold_booking(
     db.commit()
     db.refresh(gt)
 
-    # مسح الكاش بعد التعديل لضمان ظهور التغييرات فوراً
     from .cache import cache
     cache_key = f"golden:days:clinic:{payload.clinic_id}"
     cache.delete(cache_key)
@@ -857,7 +777,6 @@ def verify_golden_code(
     - بيانات المريض إذا وُجد الكود
     - رسالة خطأ إذا لم يُوجد
     """
-    # البحث عن جدول Golden Book
     gt = db.query(models.GoldenBookingTable).filter(
         models.GoldenBookingTable.clinic_id == payload.clinic_id
     ).first()
@@ -873,14 +792,11 @@ def verify_golden_code(
     except Exception:
         days = {}
     
-    # إذا تم تحديد تاريخ معين، نبحث فيه فقط
     if payload.date:
         search_dates = [payload.date]
     else:
-        # البحث في كل التواريخ
         search_dates = list(days.keys())
     
-    # البحث عن الكود في التواريخ المحددة
     for date_key in search_dates:
         day_obj = days.get(date_key)
         if not isinstance(day_obj, dict):
@@ -890,13 +806,11 @@ def verify_golden_code(
         if not isinstance(patients, list):
             continue
         
-        # البحث عن المريض بالكود
         for patient in patients:
             if not isinstance(patient, dict):
                 continue
             
             if patient.get("code") == payload.code:
-                # وجدنا المريض!
                 return schemas.VerifyGoldenCodeResponse(
                     status="success",
                     patient_name=patient.get("name"),
@@ -908,7 +822,6 @@ def verify_golden_code(
                     booking_date=date_key
                 )
     
-    # لم نجد الكود
     return schemas.VerifyGoldenCodeResponse(
         status="error",
         message="الكود غير صحيح أو غير موجود"
@@ -939,7 +852,6 @@ def get_all_days_golden(
       }
     }
     """
-    # جلب جدول الحجوزات الذهبية الحالي (غير المؤرشف)
     gt = db.query(models.GoldenBookingTable).filter(
         models.GoldenBookingTable.clinic_id == clinic_id
     ).first()
@@ -960,9 +872,9 @@ def get_all_days_golden(
 @router.get("/golden_booking_archives/{clinic_id}", response_model=schemas.BookingArchivesListResponse)
 def list_golden_booking_archives(
     clinic_id: int,
-    from_date: str | None = None,  # YYYY-MM-DD
-    to_date: str | None = None,    # YYYY-MM-DD
-    limit: int | None = None,      # حد أقصى لعدد الأيام المرجعة
+    from_date: str | None = None,
+    to_date: str | None = None,
+    limit: int | None = None,
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret),
 ):

@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from .database import SessionLocal
@@ -33,19 +34,16 @@ def update_clinic_status(
     Returns:
         حالة العيادة المحدثة
     """
-    # البحث عن سجل موجود
     clinic_status = db.query(models.ClinicStatus).filter(
         models.ClinicStatus.clinic_id == payload.clinic_id
     ).first()
     
     if clinic_status:
-        # تحديث السجل الموجود
         clinic_status.is_closed = payload.is_closed
         db.add(clinic_status)
         db.commit()
         db.refresh(clinic_status)
     else:
-        # إنشاء سجل جديد
         clinic_status = models.ClinicStatus(
             clinic_id=payload.clinic_id,
             is_closed=payload.is_closed
@@ -79,7 +77,6 @@ def get_clinic_status(
     ).first()
     
     if not clinic_status:
-        # إذا لم يوجد سجل، نعتبر العيادة مفتوحة افتراضياً
         return schemas.ClinicStatusResponse(
             clinic_id=clinic_id,
             is_closed=False

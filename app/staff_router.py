@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from typing import Optional, List
 import os
 import bcrypt
@@ -18,23 +19,19 @@ from .doctors import require_profile_secret
 
 router = APIRouter(tags=["Staff & RBAC"])
 
-# دعم تغيير كلمة مرور الموظف عبر /staff/password (متوافق مع الفرونت)
 
 
 def _collect_permissions(db: Session, staff: Optional[models.Staff], admin: models.Admin) -> List[str]:
-    # super-admin always all permissions
     if getattr(admin, "is_superuser", False):
         return all_permissions()
 
     perms: set[str] = set()
-    # Admins (non super) get default admin role permissions
     try:
         from .rbac import default_roles as _defaults
         perms.update(_defaults().get("admin", {}).get("permissions", []))
     except Exception:
         pass
 
-    # If a staff context is provided, merge role and direct staff permissions
     if staff and staff.role_id:
         role_perms = db.query(models.RolePermission).options(load_only(models.RolePermission.permission)).filter_by(role_id=staff.role_id).all()
         perms.update(p.permission for p in role_perms)
@@ -45,7 +42,6 @@ def _collect_permissions(db: Session, staff: Optional[models.Staff], admin: mode
 
 
 def _ensure_seed(db: Session):
-    # seed roles only if table empty
     count = db.query(models.Role).count()
     if count:
         return
@@ -61,7 +57,6 @@ def _ensure_seed(db: Session):
 
 def _ensure_staff_table(db: Session):
     try:
-        # quick probe to see if table exists
         db.execute(text("SELECT 1 FROM staff LIMIT 1"))
         return
     except Exception:
@@ -71,12 +66,10 @@ def _ensure_staff_table(db: Session):
             if bind is not None:
                 _Base.metadata.create_all(bind=bind)
         except Exception:
-            # ignore; will be handled in dynamic insert fallback
             pass
 
 
 def _staff_available_columns(db: Session) -> set[str]:
-    # Try SQLAlchemy inspector first (works across SQLite/Postgres/etc.)
     try:
         bind = db.get_bind()
         if bind is not None:
@@ -85,7 +78,6 @@ def _staff_available_columns(db: Session) -> set[str]:
             return {c for c in cols if c}
     except Exception:
         pass
-    # Fallback to Postgres information_schema
     try:
         rows = db.execute(
             text(
@@ -104,7 +96,6 @@ def _staff_available_columns(db: Session) -> set[str]:
 @router.get("/users/me", response_model=schemas.AdminOut)
 def users_me(current_admin: models.Admin = Depends(get_current_admin), db: Session = Depends(get_db)):
     _ensure_seed(db)
-    # لا نربط الأدمن بالستاف: الدور والصلاحيات تُشتق من حساب الأدمن فقط
     if getattr(current_admin, "is_superuser", False):
         role_key = "super-admin"
         perms = all_permissions()
@@ -128,7 +119,6 @@ def users_me(current_admin: models.Admin = Depends(get_current_admin), db: Sessi
 
 @router.get("/permissions", response_model=schemas.PermissionList)
 def list_permissions(current_admin: models.Admin = Depends(get_current_admin)):
-    # Anyone authenticated can view permissions list (public catalog)
     return schemas.PermissionList(items=all_permissions())
 
 
@@ -148,7 +138,6 @@ def update_role_permissions(role_id: int, body: dict, db: Session = Depends(get_
     if not getattr(current_admin, "is_superuser", False):
         raise HTTPException(status_code=403, detail="غير مسموح")
     perms: List[str] = body.get("permissions") or []
-    # validate
     valid = set(all_permissions())
     for p in perms:
         if p not in valid:
@@ -156,7 +145,6 @@ def update_role_permissions(role_id: int, body: dict, db: Session = Depends(get_
     role = db.query(models.Role).filter_by(id=role_id).first()
     if not role:
         raise HTTPException(status_code=404, detail="الدور غير موجود")
-    # replace
     db.query(models.RolePermission).filter_by(role_id=role_id).delete()
     for p in perms:
         db.add(models.RolePermission(role_id=role_id, permission=p))
@@ -169,7 +157,6 @@ def _require_perm(perms: List[str], needed: str):
         raise HTTPException(status_code=403, detail="صلاحية غير كافية")
 
 
-# ===== Staff auth (separate from admins) =====
 
 
 def _resolve_actor_and_perms(token: str, db: Session) -> tuple[Optional[models.Admin], Optional[models.Staff], List[str]]:
@@ -237,7 +224,6 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         pass
     
-    # قبول JSON أو form
     email = None
     password = None
     try:
@@ -258,7 +244,6 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="يجب إرسال البريد وكلمة المرور")
 
     try:
-        # جلب الموظف والتأكد من الحالة وكلمة المرور
         row = (
             db.execute(
                 text("SELECT id, name, email, role_key, status, password_hash FROM staff WHERE LOWER(email)=:e LIMIT 1"),
@@ -282,7 +267,6 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
     if not pwd_hash:
         raise HTTPException(status_code=401, detail="الحساب لا يحتوي على كلمة مرور، يرجى التواصل مع الإدارة")
     
-    # التحقق من كلمة المرور مباشرة مع bcrypt (نفس طريقة الأدمن)
     password_bytes = password.encode('utf-8')[:72]
     try:
         if not bcrypt.checkpw(password_bytes, pwd_hash.encode('utf-8')):
@@ -320,7 +304,6 @@ def get_current_staff(token: str = Depends(oauth2_scheme), db: Session = Depends
     if not sub or not str(sub).startswith("staff:"):
         raise HTTPException(status_code=401, detail="رمز ناقص البيانات")
     staff_id = int(str(sub).split(":",1)[1])
-    # load only columns that actually exist
     avail = _staff_available_columns(db)
     load_cols = [models.Staff.id, models.Staff.name, models.Staff.email]
     if "role_id" in avail: load_cols.append(models.Staff.role_id)
@@ -346,7 +329,6 @@ def staff_me(current_staff: models.Staff = Depends(get_current_staff)):
     """إرجاع بيانات الموظف الحالي."""
     return current_staff
 
-# دعم تغيير كلمة مرور الموظف عبر /staff/password (متوافق مع الفرونت)
 @router.post("/staff/password")
 async def staff_password_change_api(payload: schemas.ChangePasswordRequest, current_staff: models.Staff = Depends(get_current_staff), db: Session = Depends(get_db)):
     """تغيير كلمة مرور الموظف الحالي عبر /staff/password (متوافق مع الفرونت)."""
@@ -383,7 +365,6 @@ async def staff_password_change_api(payload: schemas.ChangePasswordRequest, curr
 
 @router.post("/staff/{staff_id}/set-password")
 async def staff_set_password(staff_id: int, request: Request, password: Optional[str] = Form(default=None), db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    # only admins with update permission can set staff password
     s = (
         db.query(models.Staff)
         .options(load_only(models.Staff.id))
@@ -396,7 +377,6 @@ async def staff_set_password(staff_id: int, request: Request, password: Optional
     _require_perm(perms, "staff.update")
     pwd = password
     if not pwd:
-        # try JSON
         try:
             content_type = (request.headers.get("content-type") or "").lower()
             if content_type.startswith("application/json"):
@@ -406,11 +386,9 @@ async def staff_set_password(staff_id: int, request: Request, password: Optional
             pwd = None
     if not pwd:
         raise HTTPException(status_code=400, detail="password مطلوب")
-    # ensure column exists in DB before setting
     cols = _staff_available_columns(db)
     if "password_hash" not in cols:
         raise HTTPException(status_code=400, detail="إعداد كلمة المرور غير مدعوم في هذا الإصدار من قاعدة البيانات")
-    # safe direct update to avoid selecting non-existent columns
     db.execute(text("UPDATE staff SET password_hash=:ph WHERE id=:id"), {"ph": get_password_hash(pwd), "id": staff_id})
     db.commit()
     return {"message": "ok"}
@@ -419,11 +397,9 @@ async def staff_set_password(staff_id: int, request: Request, password: Optional
 @router.post("/staff/me/change-password")
 async def staff_change_password(payload: schemas.ChangePasswordRequest, current_staff: models.Staff = Depends(get_current_staff), db: Session = Depends(get_db)):
     """تغيير كلمة مرور الموظف نفسه دون الحاجة لصلاحيات إدارية."""
-    # تأكد من دعم عمود كلمة المرور
     cols = _staff_available_columns(db)
     if "password_hash" not in cols:
         raise HTTPException(status_code=400, detail="إعداد كلمة المرور غير مدعوم في هذا الإصدار من قاعدة البيانات")
-    # اجلب الهاش الحالي بشكل مباشر لتفادي تحميل أعمدة غير موجودة
     row = (
         db.execute(
             text("SELECT password_hash FROM staff WHERE id=:id"),
@@ -435,7 +411,6 @@ async def staff_change_password(payload: schemas.ChangePasswordRequest, current_
         raise HTTPException(status_code=400, detail="لا توجد كلمة مرور حالية محددة")
     if not verify_password(payload.current_password, row[0]):
         raise HTTPException(status_code=400, detail="كلمة المرور الحالية غير صحيحة")
-    # حدّث الهاش
     db.execute(text("UPDATE staff SET password_hash=:ph WHERE id=:id"), {"ph": get_password_hash(payload.new_password), "id": current_staff.id})
     db.commit()
     return {"message": "تم تغيير كلمة المرور"}
@@ -467,7 +442,6 @@ def list_staff(
         s = f"%{search.strip().lower()}%"
         q = q.filter(func.lower(models.Staff.name).like(s) | func.lower(models.Staff.email).like(s))
     total = q.count()
-    # ترتيب مرن: created_at إن وُجد وإلا حسب id تنازلياً
     if "created_at" in avail:
         rows = q.order_by(models.Staff.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
     else:
@@ -494,7 +468,6 @@ def list_staff(
 async def create_staff(request: Request, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     _ensure_staff_table(db)
     _ensure_seed(db)  # تأكد من وجود الأدوار الافتراضية
-    # استخرج نوع الهوية: أدمن أو موظف
     actor_admin: Optional[models.Admin] = None
     actor_staff: Optional[models.Staff] = None
     perms: List[str] = []
@@ -519,14 +492,11 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
             )
             if not actor_staff or (actor_staff.status or "active") != "active":
                 raise HTTPException(status_code=401, detail="غير مصرح")
-            # صلاحيات الموظف = دور + صلاحيات مباشرة
             perms_set = set()
-            # من role_id إن وجد
             if actor_staff.role_id:
                 rps = db.query(models.RolePermission).filter_by(role_id=actor_staff.role_id).all()
                 perms_set.update(p.permission for p in rps)
             else:
-                # وإلا من role_key كحل بديل (حيث قد لا نحدد role_id في سجلات قديمة)
                 if hasattr(models, 'Role'):
                     role_key_val = getattr(actor_staff, 'role_key', None) or 'staff'
                     role = db.query(models.Role).filter_by(key=role_key_val).first()
@@ -535,7 +505,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
                         perms_set.update(p.permission for p in rps)
             dps = db.query(models.StaffPermission).filter_by(staff_id=actor_staff.id).all()
             perms_set.update(p.permission for p in dps)
-            # دمج صلاحيات الدور الافتراضي حسب role_key كحل متوافق للأدوار القديمة
             try:
                 from .rbac import default_roles as _defaults
                 rk = getattr(actor_staff, 'role_key', None) or 'staff'
@@ -552,7 +521,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
 
     _require_perm(perms, "staff.create")
 
-    # Accept JSON or form
     content_type = (request.headers.get("content-type") or "").lower()
     if content_type.startswith("application/json"):
         data = await request.json()
@@ -566,12 +534,10 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
         raise HTTPException(status_code=400, detail="يجب إرسال email و password (واسم اختياري)")
 
     try:
-        # يجب توفر عمود password_hash لدعم كلمات مرور الموظفين
         available_cols = _staff_available_columns(db)
         if "password_hash" not in available_cols:
             raise HTTPException(status_code=500, detail="إعداد قاعدة البيانات ناقص: عمود password_hash غير موجود في staff")
 
-        # email uniqueness (avoid selecting non-existent columns)
         exists = (
             db.query(models.Staff)
             .options(load_only(models.Staff.id, models.Staff.email))
@@ -581,7 +547,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
         if exists:
             raise HTTPException(status_code=400, detail="البريد مستخدم مسبقاً")
 
-        # حدد role_id المطلوب إن أرسله العميل: يدعم role_id أو role/systemRole (بالاسم أو المفتاح، غير حساس لحالة الأحرف)
         desired_role_id = None
         try:
             role_id_raw = (data.get("role_id") if isinstance(data, dict) else None)
@@ -609,13 +574,10 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
         except Exception:
             desired_role_id = None
 
-        # إدخال عبر ORM عندما يكون العمود متاحاً
         try:
-            # حدد role_id الافتراضي لدور "staff" إن وُجد
             role_id_val = None
             role_key_val = "staff"
             try:
-                # إن لم يرسل العميل اختياراً محدداً، استخدم staff
                 role_obj = db.query(models.Role).filter_by(key="staff").first()
                 if role_obj:
                     role_id_val = role_obj.id
@@ -624,7 +586,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
                 role_id_val = None
                 role_key_val = "staff"
             if desired_role_id is not None:
-                # اجلب الدور المختار لتعيين role_key بدقة
                 r = db.query(models.Role).filter_by(id=desired_role_id).first()
                 if r:
                     role_id_val = r.id
@@ -655,10 +616,8 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
                 created_at=staff.created_at,
             )
         except Exception:
-            # إدراج ديناميكي إن فشل ORM
             db.rollback()
             now = datetime.utcnow()
-            # احسب role_key الفعلي للديناميكي أيضًا
             dyn_role_key = "staff"
             if desired_role_id is not None:
                 rr = db.query(models.Role).filter_by(id=desired_role_id).first()
@@ -670,7 +629,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
             base_values = {
                 "name": (payload.name or payload.email.split("@")[0]),
                 "email": payload.email.lower(),
-                # حاول تعيين role_id إن أمكن
                 "role_id": (desired_role_id if desired_role_id is not None else (db.query(models.Role).filter_by(key="staff").first().id if db.query(models.Role).filter_by(key="staff").first() else None)),
                 "role_key": dyn_role_key,
                 "department": None,
@@ -702,7 +660,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
                 created_at=now,
             )
     except Exception as e:
-        # likely due to schema drift (missing columns). Try minimal/dynamic insert.
         db.rollback()
         try:
             cols_res = db.execute(
@@ -717,14 +674,12 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
             cols = [(r[0], (r[1] or '').upper(), r[2]) for r in cols_res]
             available = {c for c, _, _ in cols}
             must_have = {c for c, nul, d in cols if nul == 'NO' and d is None}
-            # If table seems missing (no columns), try to create tables then re-read
             if not available:
                 try:
                     from .database import Base as _Base
                     bind = db.get_bind()
                     if bind is not None:
                         _Base.metadata.create_all(bind=bind)
-                    # re-fetch columns
                     cols_res = db.execute(
                         text(
                             """
@@ -754,7 +709,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
                 "created_at": now,
             }
             use_keys = [k for k in base_values.keys() if k in available]
-            # ensure required columns are covered with non-null values
             missing_required = [k for k in must_have if (k not in use_keys or base_values.get(k) is None) and k not in {"id"}]
             if missing_required:
                 raise RuntimeError(f"staff missing required cols without defaults: {missing_required}")
@@ -766,7 +720,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
             params = {k: base_values[k] for k in use_keys}
             db.execute(text(sql), params)
             db.commit()
-            # fetch id only to build response safely without selecting missing columns
             id_row = db.execute(text("SELECT id FROM staff WHERE LOWER(email)=:e ORDER BY id DESC LIMIT 1"), {"e": payload.email.lower()}).first()
             new_id = id_row[0] if id_row else None
             return schemas.StaffItem(
@@ -783,7 +736,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
             )
         except Exception as e2:
             db.rollback()
-            # Return plain text 500 with exact Content-Type (no charset) to satisfy client expectations
             debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
             msg = "Internal Server Error"
             if debug:
@@ -848,7 +800,6 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
     _, _, perms = _resolve_actor_and_perms(token, db)
     _require_perm(perms, "staff.update")
 
-    # Accept JSON or form-data
     try:
         content_type = (request.headers.get("content-type") or "").lower()
         if content_type.startswith("application/json"):
@@ -856,7 +807,6 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
         else:
             form = await request.form()
             data = dict(form)
-        # Normalize types for form-data
         if isinstance(data, dict):
             if "role_id" in data and isinstance(data.get("role_id"), str) and data.get("role_id").strip() != "":
                 try:
@@ -890,7 +840,6 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
             s.status = payload.status
         if payload.avatar_url is not None:
             s.avatar_url = payload.avatar_url
-        # دعم role_id أو role/systemRole كسلسلة (key أو name)
         if payload.role_id is not None or payload.role is not None or (isinstance(data, dict) and (data.get("systemRole") is not None)):
             role = None
             if payload.role_id is not None:
@@ -912,7 +861,6 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
             s.role_id = role.id
             s.role_key = role.key
         if payload.permissions is not None:
-            # replace direct permissions
             db.query(models.StaffPermission).filter_by(staff_id=s.id).delete()
             valid = set(all_permissions())
             for p in payload.permissions:
@@ -943,7 +891,6 @@ async def update_staff(staff_id: int, request: Request, db: Session = Depends(ge
         return Response(content=msg, status_code=500, headers={"Content-Type": "text/plain"})
 
 
-# تمت إزالة نقطة provision لعدم خلط الموظفين مع حسابات الأدمن
 
 
 @router.delete("/staff/{staff_id}")
@@ -960,9 +907,7 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db), current_admin: mo
     _require_perm(perms, "staff.delete")
 
     try:
-        # Remove dependent rows to avoid FK errors if cascade is not set
         db.query(models.StaffPermission).filter_by(staff_id=s.id).delete()
-        # Use direct delete to avoid ORM selecting missing columns
         db.execute(text("DELETE FROM staff WHERE id=:id"), {"id": s.id})
         db.commit()
         return {"message": "deleted"}
@@ -977,7 +922,6 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db), current_admin: mo
 
 @router.post("/staff/{staff_id}/activate")
 def activate_staff(staff_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    # Fetch minimal fields for permission check
     s = (
         db.query(models.Staff)
         .options(load_only(models.Staff.id, models.Staff.role_id))
@@ -988,7 +932,6 @@ def activate_staff(staff_id: int, db: Session = Depends(get_db), current_admin: 
         raise HTTPException(status_code=404, detail="غير موجود")
     perms = _collect_permissions(db, s, current_admin)
     _require_perm(perms, "staff.activate")
-    # Direct update to avoid selecting missing columns
     db.execute(text("UPDATE staff SET status='active' WHERE id=:id"), {"id": staff_id})
     db.commit()
     return {"message": "ok"}
@@ -1057,19 +1000,15 @@ def create_staff_simple(
         if not email or not name:
             raise HTTPException(status_code=400, detail="يجب إرسال email و name")
         
-        # تحويل كلمة المرور إلى bytes وقصها إلى 72 بايت (حد bcrypt)
         password_bytes = password.encode('utf-8')[:72]
         
-        # التحقق من عدم تكرار الإيميل
         existing = db.query(models.Staff).filter(models.Staff.email == email).first()
         if existing:
             raise HTTPException(status_code=409, detail="الإيميل مستخدم مسبقاً")
         
-        # hash كلمة المرور
         import bcrypt
         password_hash = bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode('utf-8')
         
-        # إنشاء الموظف
         new_staff = models.Staff(
             email=email,
             name=name,
@@ -1078,7 +1017,6 @@ def create_staff_simple(
             status='active'
         )
         
-        # إضافة الحقول الاختيارية (يمكن تغيير role_key إذا تم إرساله)
         if "role_key" in payload:
             new_staff.role_key = payload["role_key"]
         if "department" in payload:
@@ -1135,12 +1073,10 @@ def update_staff_status(
     if is_active is None:
         raise HTTPException(status_code=400, detail="يجب إرسال is_active")
     
-    # التحقق من وجود الموظف
     staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="الموظف غير موجود")
     
-    # تحديث الحالة
     new_status = "active" if is_active else "inactive"
     db.execute(text("UPDATE staff SET status=:status WHERE id=:id"), {"status": new_status, "id": staff_id})
     db.commit()
@@ -1173,12 +1109,10 @@ def update_staff_info(
     
     Returns: بيانات الموظف المحدثة
     """
-    # التحقق من وجود الموظف
     staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="الموظف غير موجود")
     
-    # تحديث الحقول المرسلة فقط
     if "name" in payload and payload["name"]:
         staff.name = payload["name"]
     if "email" in payload and payload["email"]:

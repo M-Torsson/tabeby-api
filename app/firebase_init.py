@@ -2,13 +2,14 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 import os, json
 try:
-    import firebase_admin  # type: ignore
-    from firebase_admin import credentials  # type: ignore
-except Exception:  # pragma: no cover
-    firebase_admin = None  # type: ignore
-    credentials = None  # type: ignore
+    import firebase_admin
+    from firebase_admin import credentials
+except Exception:
+    firebase_admin = None
+    credentials = None
 
 
 def ensure_firebase_initialized() -> None:
@@ -22,7 +23,6 @@ def ensure_firebase_initialized() -> None:
     if firebase_admin._apps:
         return
 
-    # 1) جرّب JSON من متغيّر البيئة
     creds_json = os.environ.get("FIREBASE_CREDENTIALS_JSON")
     if creds_json:
         try:
@@ -33,15 +33,12 @@ def ensure_firebase_initialized() -> None:
         firebase_admin.initialize_app(cred)
         return
 
-    # 2) جرّب ملف من مسار
     creds_path = os.environ.get("FIREBASE_CREDENTIALS_PATH")
     if creds_path and os.path.exists(creds_path):
         cred = credentials.Certificate(creds_path)
         firebase_admin.initialize_app(cred)
         return
 
-    # 3) (اختياري) مسار Render الافتراضي لو رفعت الملف كـ Secret File
-    # استبدل الاسم بالاسم الحقيقي للملف الذي يظهر لك في لوحة Render
     default_path = "/etc/secrets/tabeby-auth-firebase-adminsdk-fbsvc-46d417a54c.json"
     if os.path.exists(default_path):
         cred = credentials.Certificate(default_path)

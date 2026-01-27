@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
 from typing import Literal, Optional, List
 from datetime import datetime
@@ -17,7 +18,6 @@ class PatientOut(BaseModel):
     email: EmailStr
 
 
-# ===== Schemas for Admin/Auth =====
 class AdminCreate(BaseModel):
     name: str
     email: EmailStr
@@ -32,7 +32,6 @@ class AdminOut(BaseModel):
     is_active: bool
     is_superuser: bool
     two_factor_enabled: bool = False  # مُعاد للتوافق فقط (لا عمود في قاعدة البيانات)
-    # RBAC derived fields for frontend
     is_admin: bool | None = None
     is_staff: bool | None = None
     role: str | None = None
@@ -53,11 +52,9 @@ class TokenPair(BaseModel):
 
 class RefreshRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-    # يقبل refreshToken (camelCase) و refresh_token (snake_case)
     refresh_token: str = Field(validation_alias="refreshToken")
 
 
-# ===== User/Profile updates =====
 class AdminUpdate(BaseModel):
     name: str | None = None
     email: EmailStr | None = None
@@ -89,7 +86,6 @@ class AdminAdminUpdate(BaseModel):
     active: bool | None = None
 
 
-# ===== Password Reset Flow =====
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
@@ -105,7 +101,6 @@ class VerifyResetResponse(BaseModel):
     reason: Literal["invalid", "expired", "used"] | None = None
 
 
-# ===== Activity =====
 ActivityType = Literal[
     "password_changed",
     "login_new_device",
@@ -146,7 +141,6 @@ class ActivityListResponse(BaseModel):
     nextCursor: Optional[str] = None
 
 
-# ===== Two-Factor Auth (2FA) =====
 class TwoFASetupResponse(BaseModel):
     secret: str
     otpauth_url: str
@@ -161,13 +155,11 @@ class TwoFAStatusResponse(BaseModel):
     two_factor_enabled: bool
 
 
-# ===== Sessions =====
 class SessionOut(BaseModel):
     id: int
     current: bool
 
 
-# ===== RBAC (Roles/Permissions/Staff) =====
 class RoleOut(BaseModel):
     id: int
     key: str
@@ -217,7 +209,6 @@ class StaffUpdate(BaseModel):
     permissions: Optional[list[str]] = None
 
 
-# ===== Recovery Codes =====
 class RecoveryCodeOut(BaseModel):
     code: str
     used: bool
@@ -226,7 +217,6 @@ class RecoveryCodeOut(BaseModel):
 class RecoveryCodesResponse(BaseModel):
     codes: List[RecoveryCodeOut]
 
-# ===== Departments =====
 
 class DepartmentCreate(BaseModel):
     name: str
@@ -277,7 +267,6 @@ class DepartmentStats(BaseModel):
     growth_rate: float
 
 
-# ===== Secretary Code Generator Schemas =====
 
 class SecretaryCodeRequest(BaseModel):
     clinic_id: int
@@ -290,7 +279,6 @@ class SecretaryCodeResponse(BaseModel):
     result: str = "successfuly"
 
 
-# ===== Secretary Login Schemas =====
 
 class SecretaryLoginRequest(BaseModel):
     secretary_code: int
@@ -305,7 +293,6 @@ class SecretaryLoginResponse(BaseModel):
     receiving_patients: int | None = None
 
 
-# ===== Patient User Registration Schemas =====
 
 class PatientUserRegisterRequest(BaseModel):
     user_uid: str
@@ -318,7 +305,6 @@ class PatientUserRegisterResponse(BaseModel):
     user_role: str
 
 
-# ===== Patient Profile Schemas =====
 
 class PatientProfileCreateRequest(BaseModel):
     user_server_id: str  # e.g., P-1
@@ -338,7 +324,6 @@ class PatientProfileResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-# ===== Booking (Create Table) Schemas =====
 
 class BookingCreateRequest(BaseModel):
     clinic_id: int
@@ -350,10 +335,8 @@ class BookingCreateResponse(BaseModel):
     capacity_total: int | None = None  # السعة المستنتجة أو المرسلة (إن وجدت) لإرجاعها في الاستجابة
 
 
-# ===== Patient Booking Schemas =====
 
 class PatientBookingRequest(BaseModel):
-    # إما أن يرسل booking_id الجاهز أو يتركه ليُولد تلقائياً
     booking_id: str | None = None
     token: int | None = None  # اختياري، سيتم تجاهله إذا لا يطابق التسلسل المتوقع
     patient_id: str | None = None  # يمكن توليده تلقائياً حسب العيادة
@@ -363,7 +346,6 @@ class PatientBookingRequest(BaseModel):
     status: str | None = None  # يمكن إرسال قيمة إنجليزية وسيتم تحويلها للعربية
     created_at: str | None = None
     secretary_id: str | None = None  # فقط عند الحجز من السكرتير
-    # في حال عدم إرسال booking_id نحتاج clinic_id + date (date اختياري للمريض)
     clinic_id: int | None = None
     date: str | None = None  # صيغة YYYY-MM-DD (اختياري للمريض - سيبحث عن أقرب يوم متاح)
 
@@ -379,16 +361,11 @@ class PatientBookingResponse(BaseModel):
     patient_id: str | None = None  # مُعاد الآن لإظهار رقم المراجع (يختلف حسب المصدر)
 
 
-# ===== Add Day (Next Date) Schemas =====
 class AddDayRequest(BaseModel):
     clinic_id: int
-    # يمكن إرسال capacity_total مخصص؛ إن لم يُرسل ننسخ من آخر يوم موجود
     capacity_total: int | None = None
-    # حالة اليوم الجديد (افتراضياً open)
     status: str | None = None  # مثال: open / closed
-    # تخطي شرط امتلاء اليوم الأخير وإضافة اليوم الجديد بالقوة
     force_add: bool | None = False
-    # تاريخ مخصص لإضافته (إن أُرسل نتجاهل حساب اليوم التالي)، يدعم أيضاً المفتاح date_added في الطلب
     date: str | None = Field(default=None, validation_alias="date_added")
 
 class AddDayResponse(BaseModel):
@@ -397,13 +374,11 @@ class AddDayResponse(BaseModel):
     date_added: str | None = None  # التاريخ الذي تم إضافته
 
 
-# ===== Full Booking Days Fetch Schema =====
 class BookingDaysFullResponse(BaseModel):
     clinic_id: int
     days: dict  # يحتوي نفس البنية المخزنة
 
 
-# ===== Edit Patient Booking Status =====
 class EditPatientBookingRequest(BaseModel):
     clinic_id: int
     booking_id: str  # إجباري الآن - نستخدمه لاستخراج التاريخ والمريض
@@ -419,12 +394,9 @@ class EditPatientBookingResponse(BaseModel):
     patient_id: str | None = None
 
 
-# ===== Save/Close Table Schemas =====
 class SaveTableRequest(BaseModel):
     clinic_id: int
-    # اسم الحقل الجديد: table_date (بدلاً من closed_date) ليطابق العمود الجديد
     table_date: str = Field(validation_alias="closed_date")  # YYYY-MM-DD (يقبل closed_date أيضاً للتوافق)
-    # نجعل الحقول التالية اختيارية ليُمكن الاكتفاء بإرسال التاريخ فقط
     capacity_total: int | None = None
     capacity_served: int | None = None
     capacity_cancelled: int | None = None
@@ -434,7 +406,6 @@ class SaveTableResponse(BaseModel):
     status: str
 
 
-# ===== Booking Archives Fetch =====
 class BookingArchiveItem(BaseModel):
     table_date: str
     capacity_total: int
@@ -447,8 +418,6 @@ class BookingArchivesListResponse(BaseModel):
     items: list[BookingArchiveItem]
 
 
-# ===== Simple All Days (dates only) =====
-# مخصص لواجهة ترجع فقط قائمة التواريخ بدون تفاصيل أخرى
 class AllDaysResponse(BaseModel):
     clinic_id: int
     days: dict  # key=date string -> day object (capacity_total, patients, ...)
@@ -462,7 +431,6 @@ class CloseTableResponse(BaseModel):
     removed_all: bool
 
 
-# ===== Golden Book Schemas =====
 class GoldenTableCreateRequest(BaseModel):
     clinic_id: int
     days: dict  # بنفس شكل booking days
@@ -510,7 +478,6 @@ class VerifyGoldenCodeResponse(BaseModel):
     booking_date: str | None = None
 
 
-# ===== Clinic Status Schemas =====
 class ClinicStatusUpdateRequest(BaseModel):
     clinic_id: int
     is_closed: bool
@@ -520,7 +487,6 @@ class ClinicStatusResponse(BaseModel):
     is_closed: bool
 
 
-# ===== Golden Payment Schemas =====
 class GoldenPatientPaymentRequest(BaseModel):
     clinic_id: int
     exam_date: str  # Format: DD/MM/YYYY

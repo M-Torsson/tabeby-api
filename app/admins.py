@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 import os
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -13,10 +14,8 @@ from .doctors import require_profile_secret
 
 router = APIRouter(prefix="/admins", tags=["Admins"])
 
-# نقطة ترقية إدمن إلى سوبر أدمن (تشخيصية)
 @router.post("/{admin_id}/promote", response_model=schemas.AdminBrief, include_in_schema=False)
 def promote_admin(admin_id: int, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    # يسمح فقط لسوبر أدمن حالي أو صاحب البريد المسجل كـ SUPER_ADMIN_EMAIL
     if not (current_admin.is_superuser or (current_admin.email or '').lower() == SUPER_ADMIN_EMAIL):
         raise HTTPException(status_code=403, detail="غير مسموح")
     admin = db.query(models.Admin).filter_by(id=admin_id).first()
@@ -38,12 +37,10 @@ AUTO_PROMOTE_FIRST_ADMIN = os.getenv("AUTO_PROMOTE_FIRST_ADMIN", "true").lower()
 
 
 def ensure_admin_power(current_admin: models.Admin, db: Session):
-    # يُسمح لمن لديه is_superuser أو بريد السوبر الأدمن المُحدد
     if current_admin.is_superuser:
         return
     if (current_admin.email or "").strip().lower() == SUPER_ADMIN_EMAIL:
         return
-    # في حال لا يوجد أي superuser في النظام، فعِّل ترقية أول إدمن تلقائياً عند الحاجة
     any_super = (
         db.query(models.Admin)
         .options(load_only(models.Admin.id, models.Admin.is_superuser))
@@ -60,14 +57,11 @@ def ensure_admin_power(current_admin: models.Admin, db: Session):
 
 @router.get("/_diagnose")
 def diagnose_admins(request: Request, db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    # حالة البيئة (لا نعرض أسراراً)
     env = {
         "SUPER_ADMIN_EMAIL": SUPER_ADMIN_EMAIL,
         "AUTO_PROMOTE_FIRST_ADMIN": AUTO_PROMOTE_FIRST_ADMIN,
     }
-    # تحقق من وجود هيدر التوثيق
     has_auth_header = bool(request.headers.get("authorization"))
-    # حالة قاعدة البيانات
     any_super = (
         db.query(models.Admin)
         .options(load_only(models.Admin.id, models.Admin.is_superuser))
@@ -111,7 +105,6 @@ def diagnose_admins(request: Request, db: Session = Depends(get_db), current_adm
 
 @router.post("/_ensure_super")
 def ensure_super(db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
-    # إن لم يوجد سوبر ويتم السماح بالترقية التلقائية، أو إن كان البريد يطابق بريد السوبر المحدد، رقِّ المستخدم الحالي
     any_super = (
         db.query(models.Admin)
         .options(load_only(models.Admin.id, models.Admin.is_superuser))
@@ -135,7 +128,6 @@ def list_admins(db: Session = Depends(get_db), current_admin: models.Admin = Dep
         .options(load_only(models.Admin.id, models.Admin.name, models.Admin.email, models.Admin.is_superuser))
         .all()
     )
-    # ابنِ تمثيلاً موجزاً يتضمن الدور
     result = []
     for a in admins:
         result.append({
@@ -147,7 +139,6 @@ def list_admins(db: Session = Depends(get_db), current_admin: models.Admin = Dep
     return result
 
 
-# مسار توافق قديم إذا كان الفرونت ما زال يستدعي /admins/list (يفضل تحديثه إلى /admins)
 @router.get("/list", response_model=List[schemas.AdminBrief], include_in_schema=False)
 def list_admins_legacy(db: Session = Depends(get_db), current_admin: models.Admin = Depends(get_current_admin)):
     return list_admins(db=db, current_admin=current_admin)
@@ -166,7 +157,6 @@ def update_admin(admin_id: int, payload: schemas.AdminAdminUpdate, db: Session =
     if not admin:
         raise HTTPException(status_code=404, detail="المستخدم غير موجود")
 
-    # تحديث جزئي
     changed = False
     if payload.name is not None:
         admin.name = payload.name
@@ -210,7 +200,6 @@ def delete_admin(admin_id: int, db: Session = Depends(get_db), _: None = Depends
         .filter_by(id=admin_id)
         .first()
     )
-    # احذف جميع رموز الريفريش المرتبطة بالإدمن بشكل آمن بدون تحميل أعمدة غير موجودة
     db.query(models.RefreshToken).filter_by(admin_id=admin_id).delete()
     if not admin:
         raise HTTPException(status_code=404, detail="المستخدم غير موجود")

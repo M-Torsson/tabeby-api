@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -21,7 +22,6 @@ def get_db():
         db.close()
 
 
-# ===== Request/Response Models =====
 
 class MaintenanceToggleRequest(BaseModel):
     """طلب تغيير حالة الصيانة"""
@@ -35,7 +35,6 @@ class MaintenanceStatusResponse(BaseModel):
     message: str
 
 
-# ===== Maintenance Endpoints =====
 
 @router.post("/maintenance/toggle", response_model=MaintenanceStatusResponse)
 def toggle_maintenance_mode(
@@ -49,11 +48,9 @@ def toggle_maintenance_mode(
     - server_disable: true لتفعيل الصيانة (إيقاف السيرفر), false للتشغيل العادي
     - message: رسالة الصيانة التي تظهر للمستخدمين
     """
-    # البحث عن سجل الصيانة (يجب أن يكون واحد فقط)
     maintenance = db.query(models.AppMaintenance).first()
     
     if not maintenance:
-        # إنشاء سجل جديد إذا لم يوجد
         maintenance = models.AppMaintenance(
             is_active=payload.server_disable,
             message_ar=payload.message,
@@ -61,7 +58,6 @@ def toggle_maintenance_mode(
         )
         db.add(maintenance)
     else:
-        # تحديث السجل الموجود
         maintenance.is_active = payload.server_disable
         maintenance.message_ar = payload.message
         maintenance.message_en = payload.message
@@ -94,7 +90,6 @@ def get_maintenance_status(
     maintenance = db.query(models.AppMaintenance).first()
     
     if not maintenance:
-        # إذا لم يوجد سجل، نرجع حالة تشغيل عادية
         return MaintenanceStatusResponse(
             server_disable=False,
             message=""

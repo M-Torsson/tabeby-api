@@ -2,28 +2,25 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UniqueConstraint, Index, Table, Text, DECIMAL
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
 from .timezone_utils import now_utc_for_storage
 
-# ===== User Accounts (role + phone, global id) =====
 
 class UserAccount(Base):
     __tablename__ = "user_accounts"
 
-    # هذا هو user_server_id الذي سنعيده للفرونت
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_uid = Column(String, nullable=True, index=True)  # Firebase UID أو معرف خارجي
     user_role = Column(String, nullable=False, index=True)  # patient | secretary | doctor
     phone_number = Column(String, nullable=False, unique=True, index=True)
-    # روابط اختيارية إلى جداول المجال
     doctor_id = Column(Integer, ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, default=now_utc_for_storage)
 
 
-# ===== Patient Profile (per user account) =====
 
 class PatientProfile(Base):
     __tablename__ = "patient_profiles"
@@ -56,11 +53,9 @@ class Admin(Base):
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime, default=now_utc_for_storage)
-    # تمت إزالة دعم 2FA وتفضيلات التنبيه لتبسيط النظام
 
     refresh_tokens = relationship("RefreshToken", back_populates="admin", cascade="all, delete-orphan")
 
-    # RBAC linkage: an admin may also be a staff member (optional)
     staff = relationship("Staff", back_populates="admin", uselist=False)
 
 
@@ -73,7 +68,6 @@ class RefreshToken(Base):
     expires_at = Column(DateTime, nullable=False)
     revoked = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=now_utc_for_storage)
-    # session metadata (تمت إزالة الأعمدة غير الموجودة من قاعدة البيانات)
 
     admin = relationship("Admin", back_populates="refresh_tokens")
 
@@ -111,7 +105,6 @@ class RecoveryCode(Base):
 class Activity(Base):
     __tablename__ = "activities"
 
-    # معرف نصي (UUID مثلاً)
     id = Column(String, primary_key=True)
     admin_id = Column(Integer, ForeignKey("admins.id", ondelete="CASCADE"), index=True, nullable=False)
     type = Column(String, index=True, nullable=False)
@@ -120,10 +113,8 @@ class Activity(Base):
     status = Column(String, index=True, nullable=False)
     at = Column(DateTime, index=True, nullable=False, default=now_utc_for_storage)
 
-# فهارس مفيدة
 Index("ix_activities_admin_at_desc", Activity.admin_id, Activity.at.desc()) if False else None
 
-# ===== RBAC: Roles, Permissions, Staff =====
 
 
 class Role(Base):
@@ -134,7 +125,6 @@ class Role(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
 
-    # relationship to role-permissions and staff
     permissions = relationship("RolePermission", back_populates="role", cascade="all, delete-orphan")
     staff = relationship("Staff", back_populates="role")
 
@@ -171,7 +161,6 @@ class Staff(Base):
     admin = relationship("Admin", back_populates="staff")
     role = relationship("Role", back_populates="staff")
 
-    # direct extra permissions (optional per-user overrides)
     permissions = relationship("StaffPermission", back_populates="staff", cascade="all, delete-orphan")
 
 
@@ -187,7 +176,6 @@ class StaffPermission(Base):
 
     staff = relationship("Staff", back_populates="permissions")
 
-# ===== Departments =====
 
 class Department(Base):
     __tablename__ = "departments"
@@ -208,7 +196,6 @@ class Department(Base):
     created_at = Column(DateTime, default=now_utc_for_storage)
     updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
 
-# ===== Doctor Profile (raw JSON persisted) =====
 
 class DoctorProfile(Base):
     __tablename__ = "doctor_profiles"
@@ -219,7 +206,6 @@ class DoctorProfile(Base):
     created_at = Column(DateTime, default=now_utc_for_storage)
     updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
 
-# ===== Doctors (denormalized + raw profile_json) =====
 
 class Doctor(Base):
     __tablename__ = "doctors"
@@ -238,7 +224,6 @@ class Doctor(Base):
     created_at = Column(DateTime, default=now_utc_for_storage)
     updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
 
-# ===== Secretaries (for secretary code generation) =====
 
 class Secretary(Base):
     __tablename__ = "secretaries"
@@ -253,24 +238,20 @@ class Secretary(Base):
     created_at = Column(DateTime, default=now_utc_for_storage)
 
 
-# ===== Ads (raw JSON payload per clinic) =====
 
 class Ad(Base):
     __tablename__ = "ads"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     clinic_id = Column(Integer, index=True, nullable=False)
-    # store the full ad JSON (normalized) exactly as sent by client
     payload_json = Column(Text, nullable=False)
     ad_status = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=now_utc_for_storage)
 
-    # helpful index
     __table_args__ = (
         Index("ix_ads_clinic_id_created", "clinic_id", "created_at"),
     )
 
-# ===== Booking Tables (per clinic, days JSON) =====
 
 class BookingTable(Base):
     __tablename__ = "booking_tables"
@@ -285,14 +266,12 @@ class BookingTable(Base):
     )
 
 
-# ===== Booking Archived Days (each saved/closed day in its own row) =====
 
 class BookingArchive(Base):
     __tablename__ = "booking_archives"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     clinic_id = Column(Integer, index=True, nullable=False)
-    # اليوم المؤرشف (date فقط بدون وقت)
     table_date = Column(String, nullable=False, index=True)  # صيغة YYYY-MM-DD
     capacity_total = Column(Integer, nullable=False)
     capacity_served = Column(Integer, nullable=True)
@@ -306,7 +285,6 @@ class BookingArchive(Base):
     )
 
 
-# ===== Golden Booking Table (separate from regular bookings) =====
 
 class GoldenBookingTable(Base):
     __tablename__ = "golden_booking_tables"
@@ -321,7 +299,6 @@ class GoldenBookingTable(Base):
     )
 
 
-# ===== Golden Booking Archives =====
 
 class GoldenBookingArchive(Base):
     __tablename__ = "golden_booking_archives"
@@ -341,7 +318,6 @@ class GoldenBookingArchive(Base):
     )
 
 
-# ===== Clinic Status (track if clinic is open/closed) =====
 
 class ClinicStatus(Base):
     __tablename__ = "clinic_status"
@@ -353,7 +329,6 @@ class ClinicStatus(Base):
     updated_at = Column(DateTime, default=now_utc_for_storage, onupdate=now_utc_for_storage)
 
 
-# ===== Golden Payments (track monthly payments for golden bookings) =====
 
 class GoldenPayment(Base):
     __tablename__ = "golden_payments"
@@ -376,7 +351,6 @@ class GoldenPayment(Base):
     )
 
 
-# ===== App Maintenance Mode =====
 
 class AppMaintenance(Base):
     """جدول لإدارة وضع الصيانة للتطبيق"""

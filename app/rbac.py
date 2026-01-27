@@ -2,18 +2,16 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from typing import Dict, List
 
-# Canonical permission list used by the system
 PERMISSIONS: List[str] = [
-    # Staff management
     "staff.read",
     "staff.create",
     "staff.update",
     "staff.delete",
     "staff.invite",
     "staff.activate",
-    # Appointments examples (reserved for future use)
     "appointments.read",
     "appointments.create",
     "appointments.update",
@@ -21,7 +19,6 @@ PERMISSIONS: List[str] = [
 ]
 
 
-# Default roles and their permissions
 DEFAULT_ROLES: Dict[str, Dict] = {
     "super-admin": {
         "name": "Super Admin",
@@ -43,7 +40,6 @@ DEFAULT_ROLES: Dict[str, Dict] = {
         "name": "Staff",
         "description": "General staff",
         "permissions": [
-            # نفس صلاحيات الأدمن تماماً (باستثناء حذف الموظفين الذي أبقيناه خارجاً)
             "staff.read",
             "staff.create",
             "staff.update",

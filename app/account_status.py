@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -21,31 +22,29 @@ def get_db():
         db.close()
 
 
-# ===== Request/Response Models =====
 
 class DoctorStatusRequest(BaseModel):
     doctor_id: int
-    is_active: bool  # true = active, false = inactive
+    is_active: bool
 
 
 class PatientStatusRequest(BaseModel):
-    patient_id: str  # user_server_id format: "P-123" or "123"
-    is_active: bool  # true = active, false = inactive
+    patient_id: str
+    is_active: bool  
 
 
 class PatientStatusResponse(BaseModel):
-    patient_id: str  # format: "P-123"
+    patient_id: str
     is_active: bool
 
 
 class StatusResponse(BaseModel):
     id: int
     name: str
-    status: str  # "active" or "inactive"
+    status: str
     message: str
 
 
-# ===== Doctor Status Management =====
 
 @router.post("/doctor/status", response_model=StatusResponse)
 def update_doctor_status(
@@ -65,11 +64,9 @@ def update_doctor_status(
     if not doctor:
         raise HTTPException(status_code=404, detail="doctor not found")
     
-    # تحديث الحالة في جدول doctors
     new_status = "active" if payload.is_active else "inactive"
     doctor.status = new_status
     
-    # تحديث account_status في profile_json
     if doctor.profile_json:
         try:
             profile = json.loads(doctor.profile_json)
@@ -77,12 +74,10 @@ def update_doctor_status(
                 general_info = profile.get("general_info", {})
                 if isinstance(general_info, dict):
                     general_info["account_status"] = payload.is_active
-                    # حذف accountStatus المكرر إن وجد
                     general_info.pop("accountStatus", None)
                     profile["general_info"] = general_info
                     doctor.profile_json = json.dumps(profile, ensure_ascii=False)
         except Exception as e:
-            # في حالة فشل تحديث JSON، نكمل بتحديث status فقط
             pass
     
     db.commit()
@@ -119,7 +114,6 @@ def get_doctor_status(
     }
 
 
-# ===== Patient Status Management =====
 
 @router.post("/patient/status", response_model=PatientStatusResponse)
 def update_patient_status(
@@ -132,7 +126,6 @@ def update_patient_status(
     - patient_id: معرف المريض بصيغة "P-123" أو "123"
     - is_active: true للتفعيل، false للإيقاف
     """
-    # Parse patient_id: accept "P-123" or "123"
     patient_id_str = payload.patient_id.strip()
     if patient_id_str.upper().startswith("P-"):
         patient_id_str = patient_id_str.split("-", 1)[1]
@@ -142,24 +135,20 @@ def update_patient_status(
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid patient_id format; expected P-<id> or <id>")
     
-    # البحث عن UserAccount
     ua = db.query(models.UserAccount).filter_by(id=patient_id_int).first()
     if not ua:
         raise HTTPException(status_code=404, detail="user_account not found")
     
-    # البحث عن PatientProfile
     profile = db.query(models.PatientProfile).filter_by(user_account_id=ua.id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="patient_profile not found")
     
-    # Check if is_active column exists, if not raise error with helpful message
     if not hasattr(profile, 'is_active'):
         raise HTTPException(
             status_code=500, 
             detail="Database migration required: run migrations/add_patient_is_active.sql first"
         )
     
-    # تحديث الحالة
     profile.is_active = payload.is_active
     db.commit()
     db.refresh(profile)
@@ -180,7 +169,6 @@ def get_patient_status(
     الحصول على حالة المريض الحالية
     patient_id: معرف المريض بصيغة "P-123" أو "123"
     """
-    # Parse patient_id: accept "P-123" or "123"
     patient_id_str = patient_id.strip()
     if patient_id_str.upper().startswith("P-"):
         patient_id_str = patient_id_str.split("-", 1)[1]
@@ -198,7 +186,6 @@ def get_patient_status(
     if not profile:
         raise HTTPException(status_code=404, detail="patient_profile not found")
     
-    # Get is_active safely (default to True if column doesn't exist)
     is_active = getattr(profile, 'is_active', True)
     
     return {

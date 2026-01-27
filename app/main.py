@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 import os
 import time
 import json
@@ -41,21 +42,11 @@ import re
 from typing import Any, Dict
 from sqlalchemy import text
 
-# إعداد logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-# إنشاء الجداول عند تشغيل التطبيق لأول مرة (بما في ذلك جداول RBAC الجديدة)
 Base.metadata.create_all(bind=engine)
 
-# Initialize Firebase before routers
 try:
     ensure_firebase_initialized()
 except Exception as _e:
-    # Don't crash app startup in dev if env var is missing; raise only when endpoint is called
     pass
 
 app = FastAPI(
@@ -64,12 +55,9 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# إضافة Rate Limiting Middleware (قبل CORS)
 app.add_middleware(RateLimitMiddleware)
 
-# CORS configuration: allow configured origins and any localhost/127.0.0.1 port by default
 
-# تحديث إعدادات CORS لتسمح بجميع الدومينات المطلوبة
 configured_origins = os.getenv("FRONTEND_ORIGINS")
 allow_origins = [
     "http://localhost:3000",
@@ -88,17 +76,13 @@ allow_origin_regex = os.getenv(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # يسمح لجميع الدومينات مؤقتاً لحل مشكلة CORS
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Iraq Timezone Middleware disabled temporarily - causes response issues
-# TODO: Fix middleware implementation
-# app.add_middleware(IraqTimezoneMiddleware)
 
-# Background task لحذف الإعلانات المنتهية
 async def delete_expired_ads_task():
     """
     حذف الإعلانات المنتهية:
@@ -112,7 +96,6 @@ async def delete_expired_ads_task():
             db = SessionLocal()
             now = datetime.utcnow()
             
-            # حذف الإعلانات التي انتهت صلاحيتها (بعد 24 ساعة)
             deleted_count = 0
             ads = db.query(models.Ad).all()
             
@@ -122,89 +105,60 @@ async def delete_expired_ads_task():
                     expired_date_str = data.get("expired_date")
                     
                     if expired_date_str:
-                        # تحليل تاريخ الانتهاء (يتضمن التاريخ والوقت)
                         try:
-                            # محاولة parse بصيغة "DD/MM/YYYY HH:MM"
                             expired_date = datetime.strptime(expired_date_str, "%d/%m/%Y %H:%M")
                         except:
-                            # إذا فشل، جرب الصيغة القديمة "DD/MM/YYYY"
                             expired_date = datetime.strptime(expired_date_str, "%d/%m/%Y")
                         
-                        # احذف مباشرة بعد انتهاء الـ 24 ساعة
                         if now > expired_date:
                             db.delete(ad)
                             deleted_count += 1
-                            logger.info(f"🗑️ Deleted expired ad {ad.id} (expired at {expired_date_str})")
                             
                 except Exception as e:
-                    logger.error(f"Error processing ad {ad.id}: {e}")
                     continue
             
             if deleted_count > 0:
                 db.commit()
-                logger.info(f"✅ Total deleted: {deleted_count} expired ads")
             
             db.close()
         except Exception as e:
-            logger.error(f"Error in delete_expired_ads_task: {e}")
+            pass
         
-        # انتظر ساعة قبل التحقق مرة أخرى
         await asyncio.sleep(3600)
 
-# Startup Event
 @app.on_event("startup")
 async def startup_event():
     """تنفيذ عند بدء التطبيق"""
-    logger.info("🚀 Starting Tabeby API v2.0.0 (Optimized for 10K+ users)...")
     
-    # بدء background task لحذف الإعلانات القديمة
     import asyncio
     asyncio.create_task(delete_expired_ads_task())
     
-    # تشغيل المجدول للأرشفة التلقائية
     try:
         start_scheduler()
-        logger.info("✅ Scheduler started successfully")
     except Exception as e:
-        logger.error(f"❌ Failed to start scheduler: {str(e)}")
+        pass
     
-    # التحقق من الاتصال بقاعدة البيانات
     if check_database_connection():
-        logger.info("✅ Database connection established")
-        
-        # عرض إحصائيات Pool
         try:
             pool_stats = get_pool_stats()
-            logger.info(f"📊 Connection Pool: {pool_stats}")
         except Exception:
             pass
-    else:
-        logger.error("❌ Failed to connect to database")
     
-    logger.info("✅ Application started successfully")
 
-# Shutdown Event
 @app.on_event("shutdown")
 async def shutdown_event():
     """تنفيذ عند إيقاف التطبيق"""
-    logger.info("🛑 Shutting down Tabeby API...")
     
-    # إيقاف المجدول
     try:
         shutdown_scheduler()
-        logger.info("✅ Scheduler stopped successfully")
     except Exception as e:
-        logger.error(f"❌ Failed to stop scheduler: {str(e)}")
+        pass
     
-    # إغلاق اتصالات Database
     dispose_engine()
     
-    # مسح الكاش
     cache.clear()
     
-    logger.info("✅ Application shutdown complete")
 
-# دالة للحصول على جلسة قاعدة البيانات
 def get_db():
     db = SessionLocal()
     try:
@@ -212,7 +166,6 @@ def get_db():
     finally:
         db.close()
 
-# فحص الصحة المحسّن
 @app.get("/health")
 def health():
     """Health check شامل يفحص جميع مكونات النظام + إحصائيات الأداء"""
@@ -225,7 +178,6 @@ def health():
         "performance": {}
     }
     
-    # 1. فحص قاعدة البيانات
     db_healthy = check_database_connection()
     health_status["checks"]["database"] = {
         "status": "ok" if db_healthy else "error",
@@ -235,25 +187,21 @@ def health():
     if not db_healthy:
         health_status["status"] = "unhealthy"
     
-    # 2. إحصائيات Connection Pool
     try:
         pool_stats = get_pool_stats()
         health_status["performance"]["connection_pool"] = pool_stats
     except Exception as e:
-        logger.error(f"Failed to get pool stats: {e}")
+        pass
     
-    # 3. إحصائيات Cache
     try:
         cache_stats = cache.stats()
         health_status["performance"]["cache"] = cache_stats
     except Exception as e:
-        logger.error(f"Failed to get cache stats: {e}")
+        pass
     
-    # 2. فحص Firebase
     try:
         ensure_firebase_initialized()
         from firebase_admin import auth as firebase_auth
-        # محاولة بسيطة للتحقق من الاتصال
         firebase_auth.list_users(max_results=1)
         health_status["checks"]["firebase"] = {
             "status": "ok",
@@ -266,16 +214,11 @@ def health():
             "message": f"Firebase connection failed: {str(e)}"
         }
     
-    # 3. فحص جداول الحجز
     try:
         db = SessionLocal()
-        # فحص BookingTable
         booking_count = db.query(models.BookingTable).count()
-        # فحص GoldenBookingTable
         golden_count = db.query(models.GoldenBookingTable).count()
-        # فحص BookingArchive
         archive_count = db.query(models.BookingArchive).count()
-        # فحص GoldenBookingArchive
         golden_archive_count = db.query(models.GoldenBookingArchive).count()
         db.close()
         
@@ -296,7 +239,6 @@ def health():
             "message": f"Tables check failed: {str(e)}"
         }
     
-    # 4. فحص المستخدمين
     try:
         db = SessionLocal()
         users_count = db.query(models.UserAccount).count()
@@ -313,7 +255,6 @@ def health():
     
     return health_status
 
-# Detailed health check with statistics
 @app.get("/healthz")
 def healthz_detailed():
     """Health check مفصل مع إحصائيات كاملة"""
@@ -327,13 +268,11 @@ def healthz_detailed():
         "statistics": {}
     }
     
-    # 1. فحص قاعدة البيانات
     try:
         db = SessionLocal()
         db.execute(text("SELECT 1"))
         health_data["checks"]["database"] = {"status": "ok"}
         
-        # إحصائيات قاعدة البيانات
         try:
             health_data["statistics"]["database"] = {
                 "users": db.query(models.UserAccount).count(),
@@ -355,7 +294,6 @@ def healthz_detailed():
             "message": str(e)
         }
     
-    # 2. فحص Firebase
     try:
         ensure_firebase_initialized()
         from firebase_admin import auth as firebase_auth
@@ -368,7 +306,6 @@ def healthz_detailed():
             "message": str(e)
         }
     
-    # 3. API Endpoints Status
     health_data["endpoints"] = {
         "auth": "/auth/login, /auth/register",
         "bookings": "/api/booking_days, /api/patient_booking",
@@ -380,35 +317,28 @@ def healthz_detailed():
     
     return health_data
 
-# include ads router
 app.include_router(ads_router)
 
-# Firebase quick check route
 @app.get("/_firebase_check")
 def firebase_check():
-    # Ensure initialization here if not already initialized
     try:
         ensure_firebase_initialized()
     except Exception as e:
-        # Return safe error (no secrets) to help diagnose
         return {"ok": False, "error": str(e)}
     try:
-        from firebase_admin import auth as firebase_auth  # type: ignore
-        # Python Admin SDK uses max_results/page_token or iterate_all()
+        from firebase_admin import auth as firebase_auth
         sample_uid = None
         try:
             for u in firebase_auth.list_users().iterate_all():
                 sample_uid = u.uid
                 break
         except Exception:
-            # Fallback minimal call
             page = firebase_auth.list_users()
             sample_uid = page.users[0].uid if getattr(page, 'users', []) else None
         return {"ok": True, "sample_uid": sample_uid}
     except Exception as e:
         return {"ok": False, "error": f"auth access failed: {e}"}
 
-# إضافة مسار للحصول على عدد الموظفين بدون توكن (يجب تسجيله قبل راوتر /staff)
 @app.get("/staff/count")
 def get_staff_count(active_only: bool = False, db: Session = Depends(get_db)):
     """
@@ -419,15 +349,12 @@ def get_staff_count(active_only: bool = False, db: Session = Depends(get_db)):
         return {"count": 0}
     try:
         q = db.query(models.Staff)
-        # إن وُجد عمود status وطلب المستخدم حصر العد على النشطين فقط
         if active_only and hasattr(models.Staff, "status"):
             q = q.filter(getattr(models.Staff, "status") == "active")
         return {"count": q.count()}
     except Exception:
-        # في حال وجود مشكلة في ORM، أعد 0 بدل الانهيار
         return {"count": 0}
 
-# دمج مسارات التوثيق
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(admins_router)
@@ -446,7 +373,6 @@ app.include_router(account_status_router)
 app.include_router(clinic_info_router)
 app.include_router(maintenance_router)
 
-# راوتر توافق لطلبـات قديمة تبدأ بـ /backend (مخفى عن الوثائق)
 from .auth import get_current_admin
 from sqlalchemy.orm import Session, load_only
 from .database import SessionLocal
@@ -466,7 +392,6 @@ backend_router.include_router(bookings_router)
 backend_router.include_router(golden_bookings_router)
 backend_router.include_router(clinic_status_router)
 
-# /backend/me  => /users/me
 def _light_admin(admin_id: int):
     db = SessionLocal()
     try:
@@ -488,21 +413,18 @@ def _light_admin(admin_id: int):
 def backend_me(current_admin: models.Admin = Depends(get_current_admin)):
     return _light_admin(current_admin.id)
 
-# /backend/auth/me (بعض الواجهات تتوقعه)
 @backend_router.get("/auth/me")
 def backend_auth_me(current_admin: models.Admin = Depends(get_current_admin)):
     return _light_admin(current_admin.id)
 
-# /backend/users/profile => تعيد نفس /users/me
 @backend_router.get("/users/profile")
 def backend_users_profile(current_admin: models.Admin = Depends(get_current_admin)):
     return _light_admin(current_admin.id)
 
 app.include_router(backend_router)
 
-# دعم مسار قديم /backend/admins/list لو أن الفرونت ما زال يستخدمه (يجب إزالته لاحقاً)
 from fastapi import APIRouter
-from .auth import get_current_admin  # استدعاء مباشر للدالة
+from .auth import get_current_admin
 legacy_router = APIRouter(include_in_schema=False)
 
 @legacy_router.get("/backend/admins/list")
@@ -512,7 +434,6 @@ def legacy_backend_admins_list(db: Session = Depends(get_db), current_admin: mod
 
 app.include_router(legacy_router)
 
-# مسار الجذر لعرض رسالة بسيطة أو تحويل إلى الوثائق
 @app.get("/")
 def root():
     return {
@@ -523,7 +444,6 @@ def root():
         "stats": "/stats"
     }
 
-# Endpoint لإحصائيات الكاش
 @app.get("/cache/stats")
 def cache_statistics():
     """إحصائيات الكاش للمراقبة"""
@@ -533,22 +453,17 @@ def cache_statistics():
             "timestamp": time.time()
         }
     except Exception as e:
-        logger.error(f"Failed to get cache stats: {e}")
         return {"error": str(e)}
 
-# Endpoint لمسح الكاش (للمدراء فقط)
 @app.post("/cache/clear")
 def clear_cache():
     """مسح الكاش بالكامل"""
     try:
         cache.clear()
-        logger.info("Cache cleared manually")
         return {"message": "Cache cleared successfully", "timestamp": time.time()}
     except Exception as e:
-        logger.error(f"Failed to clear cache: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Endpoint لإحصائيات شاملة
 @app.get("/stats")
 def system_statistics():
     """إحصائيات شاملة للنظام"""
@@ -564,10 +479,8 @@ def system_statistics():
         }
         return stats
     except Exception as e:
-        logger.error(f"Failed to get system stats: {e}")
         return {"error": str(e)}
 
-# إضافة مريض جديد
 @app.post("/patients", response_model=schemas.PatientOut)
 def create_patient(payload: schemas.PatientCreate, db: Session = Depends(get_db)):
     exists = db.query(models.Patient).filter_by(email=payload.email).first()
@@ -579,12 +492,10 @@ def create_patient(payload: schemas.PatientCreate, db: Session = Depends(get_db)
     db.refresh(patient)
     return patient
 
-# عرض جميع المرضى
 @app.get("/patients", response_model=list[schemas.PatientOut])
 def list_patients(db: Session = Depends(get_db)):
     return db.query(models.Patient).all()
 
-# نعيد محتوى ملف JSON كما هو تماماً بدون أي تعديل
 RAW_DOCTOR_PROFILE_JSON = r"""{
     "general_info" : {
         "create_date" : "٢٠٢٥-٠٨-٢٤ ٠٣:٠٧ م",
@@ -638,25 +549,19 @@ RAW_DOCTOR_PROFILE_JSON = r"""{
     }
 }"""
 
-# تحويل شكل الحقل clinic_waiting_time من الشكل القديم { value: "..." }
-# إلى الشكل الجديد { id: 3, name: "15 دقيقة" }
-# وحذف accountStatus المكرر - نحتفظ بقيمة account_status كما أرسلها الفرونت اند
 def _normalize_clinic_waiting_time(profile_obj: Dict[str, Any]) -> Dict[str, Any]:
     try:
         if not isinstance(profile_obj, dict):
             return profile_obj
         cwt = profile_obj.get("clinic_waiting_time")
         if isinstance(cwt, dict):
-            # إن كان بالشكل القديم يحتوي value فقط، استبدله بالشكل الجديد المطلوب
             if "value" in cwt and ("id" not in cwt and "name" not in cwt):
                 profile_obj["clinic_waiting_time"] = {"id": 3, "name": "15 دقيقة"}
         
-        # حذف accountStatus المكرر فقط، نحتفظ بـ account_status كما أرسله الفرونت اند
         g = profile_obj.get("general_info")
         if isinstance(g, dict):
             g.pop("accountStatus", None)
         
-        # Validate certifications - must be English only
         from .doctors import _validate_certifications
         certs = profile_obj.get("certifications")
         if certs is not None:
@@ -680,7 +585,6 @@ def get_doctor_profile_raw():
             row = models.DoctorProfile(slug="default", raw_json=RAW_DOCTOR_PROFILE_JSON)
             db.add(row)
             db.commit()
-        # تحقق من صحة JSON المخزّن
         try:
             json.loads(row.raw_json) if row.raw_json else {}
             return {"status": "success", "message": "Profile exists and valid"}
@@ -697,7 +601,6 @@ async def post_doctor_profile_raw(request: Request):
     raw = await request.body()
     text = raw.decode("utf-8", errors="replace")
 
-    # إذا كان الجسم بالشكل الجديد { phone, json_profile } نُنشئ طبيباً ونُرجِع العقد الجديد
     try:
         parsed = json.loads(text)
     except Exception:
@@ -706,14 +609,12 @@ async def post_doctor_profile_raw(request: Request):
     if isinstance(parsed, dict) and ("json_profile" in parsed or "phone" in parsed or "user_server_id" in parsed):
         db = SessionLocal()
         try:
-            # 1) تحضير الملف الشخصي
             prof_val = parsed.get("json_profile")
             if isinstance(prof_val, str):
                 try:
                     prof = json.loads(prof_val)
                 except Exception:
                     prof = {}
-                # طبّق التطبيع ثم أعد التسلسل
                 prof = _normalize_clinic_waiting_time(prof)
                 prof_raw = json.dumps(prof, ensure_ascii=False)
             elif isinstance(prof_val, dict):
@@ -723,13 +624,11 @@ async def post_doctor_profile_raw(request: Request):
                 prof = {}
                 prof_raw = "{}"
 
-            # 2) الهاتف بصيغة E.164 (يمكن تجاوزه إن كان مرتبطًا بحساب مستخدم موجود)
             phone_in = parsed.get("phone")
             phone_ascii = _to_ascii_digits(str(phone_in)) if phone_in is not None else None
             phone_ascii = phone_ascii.strip() if isinstance(phone_ascii, str) else None
             e164_pat = re.compile(r"^\+[1-9]\d{6,14}$")
 
-            # لو وصل user_server_id، اجلب حساب المستخدم لاستنتاج الهاتف
             acct = None
             user_server_id = parsed.get("user_server_id")
             if user_server_id is not None:
@@ -744,20 +643,16 @@ async def post_doctor_profile_raw(request: Request):
             if not phone_ascii or not e164_pat.match(phone_ascii):
                 return Response(content=json.dumps({"error": {"code": "bad_request", "message": "phone must be E.164 like +46765588441 or provide valid user_server_id"}}, ensure_ascii=False), media_type="application/json", status_code=400)
 
-            # 3) استخراج clinic_id من الملف الشخصي والتحقق من وجوده
             g = prof.get("general_info", {}) if isinstance(prof.get("general_info"), dict) else {}
             clinic_id = _safe_int(g.get("clinic_id"))
             if clinic_id is None:
                 return Response(content=json.dumps({"error": {"code": "bad_request", "message": "clinic_id is required in general_info"}}, ensure_ascii=False), media_type="application/json", status_code=400)
 
-            # استخراج قيم من الملف الشخصي وتحديث الهاتف بما أُرسِل
             den = _denormalize_profile(prof)
             den["phone"] = phone_ascii
 
-            # 4) إنشاء/تحديث الطبيب بمعرّف = clinic_id
             row = db.query(models.Doctor).filter_by(id=clinic_id).first()
             if row:
-                # تحديث - نحدث status من البروفايل
                 row.name = den.get("name") or row.name or "Doctor"
                 row.email = den.get("email")
                 row.phone = den.get("phone")
@@ -769,7 +664,6 @@ async def post_doctor_profile_raw(request: Request):
                 row.profile_json = prof_raw
                 db.commit()
             else:
-                # إنشاء طبيب جديد - status يؤخذ من البروفايل (inactive إذا account_status=false)
                 row = models.Doctor(
                     id=clinic_id,
                     name=den.get("name") or "Doctor",
@@ -777,33 +671,28 @@ async def post_doctor_profile_raw(request: Request):
                     phone=den.get("phone"),
                     experience_years=den.get("experience_years"),
                     patients_count=den.get("patients_count"),
-                    status=den.get("status") or "inactive",  # يؤخذ من account_status في البروفايل
+                    status=den.get("status") or "inactive",
                     specialty=den.get("specialty"),
                     clinic_state=den.get("clinic_state"),
                     profile_json=prof_raw,
                 )
                 db.add(row)
                 db.commit()
-                # رفع قيمة sequence في Postgres لتفادي تضارب المعرّفات لاحقًا
                 try:
                     db.execute(text("SELECT setval(pg_get_serial_sequence('doctors','id'), (SELECT GREATEST(COALESCE(MAX(id),1), 1) FROM doctors))"))
                     db.commit()
                 except Exception:
                     pass
             db.refresh(row)
-            # اربط حساب المستخدم (إن وجد) بهذا الطبيب
             if acct and not acct.doctor_id:
                 acct.doctor_id = row.id
                 db.commit()
-            # إرجاع رسالة نجاح فقط حسب العقد المطلوب
             return {"message": "success"}
         finally:
             db.close()
 
-    # سلوك التوافق القديم: أنشئ/حدّث Doctor واحفظ JSON كـ profile_json بدل DoctorProfile
     db = SessionLocal()
     try:
-        # حاول تحويل النص إلى JSON وتطبيق التطبيع إن أمكن
         normalized_text = text
         try:
             obj = json.loads(text)
@@ -812,7 +701,6 @@ async def post_doctor_profile_raw(request: Request):
                 normalized_text = json.dumps(obj, ensure_ascii=False)
         except Exception:
             pass
-        # استخرج الحقول المنزوعة التطبيع وأنشئ/حدّث Doctor
         try:
             prof_obj = json.loads(normalized_text)
         except Exception:
@@ -824,7 +712,6 @@ async def post_doctor_profile_raw(request: Request):
             return Response(content=json.dumps({"error": {"code": "bad_request", "message": "clinic_id is required in general_info"}}, ensure_ascii=False), media_type="application/json", status_code=400)
         row = db.query(models.Doctor).filter_by(id=clinic_id).first()
         if row:
-            # تحديث - نحدث status من البروفايل
             row.name = den.get("name") or row.name or "Doctor"
             row.email = den.get("email")
             row.phone = den.get("phone")
@@ -836,7 +723,6 @@ async def post_doctor_profile_raw(request: Request):
             row.profile_json = normalized_text
             db.commit()
         else:
-            # إنشاء طبيب جديد - status يؤخذ من البروفايل
             row = models.Doctor(
                 id=clinic_id,
                 name=den.get("name") or "Doctor",
@@ -844,7 +730,7 @@ async def post_doctor_profile_raw(request: Request):
                 phone=den.get("phone"),
                 experience_years=den.get("experience_years"),
                 patients_count=den.get("patients_count"),
-                status=den.get("status") or "inactive",  # يؤخذ من account_status في البروفايل
+                status=den.get("status") or "inactive",
                 specialty=den.get("specialty"),
                 clinic_state=den.get("clinic_state"),
                 profile_json=normalized_text,
@@ -856,19 +742,16 @@ async def post_doctor_profile_raw(request: Request):
                 db.commit()
             except Exception:
                 pass
-        # أعِد رسالة نجاح فقط
         return {"message": "success"}
     except Exception:
         try:
             db.rollback()
         except Exception:
             pass
-        # في حال الفشل، أعد رسالة فشل فقط
         return Response(content=json.dumps({"message": "fail"}, ensure_ascii=False), media_type="application/json", status_code=500)
     finally:
         db.close()
 
-# جلب البروفايل المخزّن لطبيب عبر المعرّف كما هو (بدون أي تعديل/التفاف)
 @app.get("/doctor/profile/{doctor_id}")
 @app.get("/doctor/profile.json/{doctor_id}")
 def get_doctor_profile_by_id(doctor_id: int):
@@ -882,13 +765,11 @@ def get_doctor_profile_by_id(doctor_id: int):
         except Exception:
             obj = {}
         
-        # حذف accountStatus المكرر فقط، نحتفظ بـ account_status كما هو مخزن
         if isinstance(obj, dict):
             g = obj.get("general_info")
             if isinstance(g, dict):
                 g.pop("accountStatus", None)
             
-            # إضافة account block
             obj["account"] = {
                 "email": r.email,
                 "phone": r.phone,
@@ -899,10 +780,8 @@ def get_doctor_profile_by_id(doctor_id: int):
     finally:
         db.close()
 
-# تحقق بعد تسجيل الدخول بالهاتف باستخدام Firebase ID Token
 @app.post("/auth/after-phone-login")
 def after_phone_login(request: Request):
-    # استخراج التوكن من الهيدر Authorization: Bearer <ID_TOKEN>
     authz = request.headers.get("authorization") or request.headers.get("Authorization")
     if not authz or not authz.lower().startswith("bearer "):
         return Response(content=json.dumps({"error": {"code": "unauthorized", "message": "Missing Bearer token"}}), media_type="application/json", status_code=401)
@@ -910,11 +789,10 @@ def after_phone_login(request: Request):
 
     try:
         ensure_firebase_initialized()
-        from firebase_admin import auth as firebase_auth  # type: ignore
+        from firebase_admin import auth as firebase_auth
         decoded = firebase_auth.verify_id_token(id_token)
         uid = decoded.get("uid")
         phone = decoded.get("phone_number")
-        # إن لم يوجد phone_number داخل التوكن، اجلب المستخدم للتأكد
         if not phone and uid:
             try:
                 u = firebase_auth.get_user(uid)
@@ -927,15 +805,12 @@ def after_phone_login(request: Request):
     if not phone:
         return Response(content=json.dumps({"error": {"code": "bad_request", "message": "No phone_number in token"}}), media_type="application/json", status_code=400)
 
-    # طبّق تحويل الأرقام والتأكد من E.164
     phone_ascii = _to_ascii_digits(str(phone)).strip()
     if not re.match(r"^\+[1-9]\d{6,14}$", phone_ascii):
         return Response(content=json.dumps({"error": {"code": "bad_request", "message": "phone_number not E.164"}}), media_type="application/json", status_code=400)
 
-    # ابحث عن الطبيب حسب رقم الهاتف
     db = SessionLocal()
     try:
-        # أولاً: لو يوجد حساب مستخدم لهذا الهاتف، استخدم الربط المباشر
         acct = db.query(models.UserAccount).filter(models.UserAccount.phone_number == phone_ascii).first()
         if acct and acct.doctor_id:
             doc = db.query(models.Doctor).filter(models.Doctor.id == acct.doctor_id).first()
@@ -943,7 +818,6 @@ def after_phone_login(request: Request):
             doc = db.query(models.Doctor).filter(models.Doctor.phone == phone_ascii).order_by(models.Doctor.id.desc()).first()
         if not doc:
             return Response(content=json.dumps({"error": {"code": "not_found", "message": "Doctor not found for this phone"}}), media_type="application/json", status_code=404)
-        # إن كان لدينا حساب مستخدم ولم يُربط بعد، اربطه الآن
         if acct and not acct.doctor_id:
             acct.doctor_id = doc.id
             db.commit()
@@ -951,7 +825,6 @@ def after_phone_login(request: Request):
     finally:
         db.close()
 
-# تسجيل مستخدم عام (مريض/سكرتير/دكتور) وإرجاع user_server_id
 @app.post("/auth/register")
 async def register_user(request: Request):
     try:
@@ -973,7 +846,6 @@ async def register_user(request: Request):
 
     db = SessionLocal()
     try:
-        # unique على رقم الهاتف؛ إن كان موجودًا أعده
         existing = db.query(models.UserAccount).filter(models.UserAccount.phone_number == phone).first()
         if existing:
             return {"message": "ok", "user_server_id": existing.id, "user_role": existing.user_role}
@@ -985,7 +857,6 @@ async def register_user(request: Request):
     finally:
         db.close()
 
-# إرجاع قائمة الأرقام لكل دور
 @app.get("/auth/check-phone")
 async def check_phone_exists(
     request: Request,
@@ -1015,19 +886,14 @@ async def check_phone_exists(
             status_code=400
         )
     
-    # إصلاح: إذا كان الرقم يبدأ بمسافة أو بدون +، أضف +
-    # (لأن + في URL يتحول إلى مسافة أحياناً)
     if phone.startswith(' '):
         phone = '+' + phone.strip()
     elif not phone.startswith('+'):
-        # إذا كان الرقم بدون +، حاول إصلاحه
         if phone[0].isdigit():
             phone = '+' + phone
     
-    # تحويل الأرقام العربية إلى ASCII
     phone_ascii = _to_ascii_digits(phone).strip()
     
-    # التحقق من صيغة E.164
     if not re.match(r"^\+[1-9]\d{6,14}$", phone_ascii):
         return Response(
             content=json.dumps({
@@ -1042,7 +908,6 @@ async def check_phone_exists(
     
     db = SessionLocal()
     try:
-        # البحث عن رقم الهاتف في جدول UserAccount
         user = db.query(models.UserAccount).filter(
             models.UserAccount.phone_number == phone_ascii
         ).first()
@@ -1092,7 +957,6 @@ def list_phones_by_role(role: str):
     finally:
         db.close()
 
-# جلب بروفايل دكتور بواسطة user_server_id
 @app.get("/doctor/profile/by-user/{user_server_id}")
 def get_doctor_by_user(user_server_id: int):
     db = SessionLocal()
@@ -1107,4 +971,3 @@ def get_doctor_by_user(user_server_id: int):
     finally:
         db.close()
 
-# انتهى

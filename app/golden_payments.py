@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from __future__ import annotations
 from datetime import datetime
 from typing import Dict, List
@@ -36,11 +37,9 @@ def _parse_exam_date_to_month(exam_date: str) -> str:
         صيغة YYYY-MM مثل "2025-10"
     """
     try:
-        # Parse DD/MM/YYYY
         dt = datetime.strptime(exam_date, "%d/%m/%Y")
         return dt.strftime("%Y-%m")
     except Exception:
-        # إذا فشل التحويل، استخدم الشهر الحالي
         return datetime.now().strftime("%Y-%m")
 
 
@@ -70,10 +69,8 @@ def golden_patient_payment(
     
     يتطلب: Doctor-Secret header
     """
-    # استخراج الشهر من التاريخ
     payment_month = _parse_exam_date_to_month(payload.exam_date)
     
-    # التحقق إذا كان الحجز موجود مسبقاً
     existing = db.query(models.GoldenPayment).filter(
         models.GoldenPayment.booking_id == payload.booking_id
     ).first()
@@ -84,7 +81,6 @@ def golden_patient_payment(
             detail={"error": {"code": "duplicate", "message": "هذا الحجز تم حفظه مسبقاً في سجل الدفعات"}}
         )
     
-    # إنشاء سجل دفع جديد
     payment = models.GoldenPayment(
         clinic_id=payload.clinic_id,
         booking_id=payload.booking_id,
@@ -92,23 +88,22 @@ def golden_patient_payment(
         code=payload.code,
         exam_date=payload.exam_date,
         book_status=payload.book_status,
-        amount=1500,  # ثابت
+        amount=1500,
         payment_month=payment_month,
-        payment_status="not_paid"  # غير مدفوع عند الإنشاء
+        payment_status="not_paid"
     )
     
     db.add(payment)
     db.commit()
     db.refresh(payment)
     
-    # لا نرجع payment_status في الـ response
     return schemas.GoldenPatientPaymentResponse(
         message="تم حفظ الدفعة بنجاح",
         booking_id=payment.booking_id,
         patient_name=payment.patient_name,
         amount=payment.amount,
         payment_month=payment.payment_month,
-        payment_status=None  # لا نرجعه
+        payment_status=None
     )
 
 
@@ -142,12 +137,10 @@ def doctor_monthly_golden_payment_status(
     
     يتطلب: Doctor-Secret header
     """
-    # جلب جميع الدفعات للعيادة
     payments = db.query(models.GoldenPayment).filter(
         models.GoldenPayment.clinic_id == clinic_id
     ).order_by(models.GoldenPayment.payment_month.asc()).all()
     
-    # تجميع حسب السنة والشهر
     years_data: Dict[str, Dict[str, dict]] = defaultdict(lambda: defaultdict(lambda: {
         "payment_status": "not_paid",
         "patinets_count": 0,
@@ -156,8 +149,8 @@ def doctor_monthly_golden_payment_status(
     }))
     
     for payment in payments:
-        year = payment.payment_month[:4]  # استخراج السنة من YYYY-MM
-        month = payment.payment_month  # YYYY-MM
+        year = payment.payment_month[:4]
+        month = payment.payment_month
         
         month_data = years_data[year][month]
         month_data["patinets_count"] += 1
@@ -170,11 +163,9 @@ def doctor_monthly_golden_payment_status(
             "code": payment.code
         })
         
-        # تحديث حالة الدفع (إذا كان أي مريض paid، الشهر كله paid)
         if payment.payment_status == "paid":
             month_data["payment_status"] = "paid"
     
-    # تحويل defaultdict إلى dict عادي
     result = {
         "clinic_id": clinic_id,
         **{year: dict(months) for year, months in years_data.items()}
@@ -209,12 +200,10 @@ def doctor_annual_payment_status(
     
     يتطلب: Doctor-Secret header
     """
-    # جلب جميع الدفعات للعيادة
     payments = db.query(models.GoldenPayment).filter(
         models.GoldenPayment.clinic_id == clinic_id
     ).order_by(models.GoldenPayment.payment_month.asc()).all()
     
-    # تجميع حسب الشهر
     months_summary: Dict[str, dict] = defaultdict(lambda: {
         "amount": 0,
         "payment_status": "not_paid"
@@ -228,7 +217,6 @@ def doctor_annual_payment_status(
         months_summary[month]["amount"] += payment.amount
         total_amount += payment.amount
         
-        # تحديث حالة الدفع
         if payment.payment_status == "paid":
             months_summary[month]["payment_status"] = "paid"
             total_paid += payment.amount
@@ -273,7 +261,6 @@ def update_payment_status(
             detail={"error": {"code": "bad_request", "message": "clinic_id و payment_month مطلوبان"}}
         )
     
-    # تحديث جميع الدفعات في هذا الشهر
     updated_count = db.query(models.GoldenPayment).filter(
         models.GoldenPayment.clinic_id == clinic_id,
         models.GoldenPayment.payment_month == payment_month
@@ -332,17 +319,14 @@ def all_clinics_golden_payments(
     
     يتطلب: Doctor-Secret header
     """
-    # جلب جميع الدفعات من جميع العيادات
     all_payments = db.query(models.GoldenPayment).order_by(
         models.GoldenPayment.clinic_id.asc(),
         models.GoldenPayment.payment_month.asc()
     ).all()
     
-    # جلب أسماء العيادات من جدول doctors
     doctors = db.query(models.Doctor.id, models.Doctor.name).all()
     clinic_names = {doc.id: doc.name for doc in doctors}
     
-    # تجميع البيانات حسب العيادة والشهر
     clinics_data: Dict[int, dict] = defaultdict(lambda: {
         "clinic_id": 0,
         "clinic_name": "",
@@ -365,36 +349,30 @@ def all_clinics_golden_payments(
         clinic_id = payment.clinic_id
         month = payment.payment_month
         
-        # تحديث بيانات العيادة
         clinic_data = clinics_data[clinic_id]
         clinic_data["clinic_id"] = clinic_id
         clinic_data["clinic_name"] = clinic_names.get(clinic_id, f"عيادة #{clinic_id}")
         clinic_data["total_patients"] += 1
         clinic_data["total_amount"] += payment.amount
         
-        # تحديث بيانات الشهر
         month_data = clinic_data["months"][month]
         month_data["patient_count"] += 1
         month_data["amount"] += payment.amount
         
-        # حساب المدفوع
         if payment.payment_status == "paid":
             month_data["payment_status"] = "paid"
             clinic_data["total_paid"] += payment.amount
             total_paid += payment.amount
         
-        # الإحصائيات العامة
         total_payments += 1
         total_amount += payment.amount
     
-    # حساب المتبقي لكل عيادة
     for clinic_data in clinics_data.values():
         clinic_data["remain_amount"] = clinic_data["total_amount"] - clinic_data["total_paid"]
         clinic_data["months"] = dict(clinic_data["months"])
     
     total_remain = total_amount - total_paid
     
-    # ترتيب العيادات حسب clinic_id
     clinics_list = sorted(clinics_data.values(), key=lambda x: x["clinic_id"])
     
     return {

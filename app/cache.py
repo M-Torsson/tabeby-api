@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 import json
 import time
 import hashlib
@@ -9,7 +10,6 @@ from typing import Optional, Any, Dict
 from functools import wraps
 import logging
 
-logger = logging.getLogger(__name__)
 
 
 class SimpleCache:
@@ -36,14 +36,11 @@ class SimpleCache:
             value, expiry = self._cache[key]
             if time.time() < expiry:
                 self._hits += 1
-                logger.debug(f"Cache HIT: {key}")
                 return value
             else:
-                # حذف القيمة المنتهية
                 del self._cache[key]
         
         self._misses += 1
-        logger.debug(f"Cache MISS: {key}")
         return None
     
     def set(self, key: str, value: Any, ttl: Optional[int] = None):
@@ -51,25 +48,21 @@ class SimpleCache:
         ttl = ttl or self.default_ttl
         expiry = time.time() + ttl
         
-        # تحقق من الحجم
         if len(self._cache) >= self.max_size:
             self._evict_oldest()
         
         self._cache[key] = (value, expiry)
-        logger.debug(f"Cache SET: {key} (TTL: {ttl}s)")
     
     def delete(self, key: str):
         """حذف قيمة من الكاش"""
         if key in self._cache:
             del self._cache[key]
-            logger.debug(f"Cache DELETE: {key}")
     
     def delete_pattern(self, pattern: str):
         """حذف جميع المفاتيح التي تحتوي على النمط"""
         keys_to_delete = [k for k in self._cache.keys() if pattern in k]
         for key in keys_to_delete:
             del self._cache[key]
-        logger.info(f"Cache DELETE PATTERN: {pattern} ({len(keys_to_delete)} keys)")
     
     def clear(self):
         """مسح الكاش بالكامل"""
@@ -77,7 +70,6 @@ class SimpleCache:
         self._cache.clear()
         self._hits = 0
         self._misses = 0
-        logger.info(f"Cache CLEARED ({size} keys removed)")
     
     def _cleanup_expired(self):
         """تنظيف العناصر المنتهية (كل 60 ثانية)"""
@@ -95,17 +87,14 @@ class SimpleCache:
         
         self._last_cleanup = now
         if expired_keys:
-            logger.info(f"Cache CLEANUP: {len(expired_keys)} expired keys removed")
     
     def _evict_oldest(self):
         """حذف أقدم عنصر عند امتلاء الكاش"""
         if not self._cache:
             return
         
-        # حذف العنصر الذي سينتهي أولاً
         oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k][1])
         del self._cache[oldest_key]
-        logger.debug(f"Cache EVICT: {oldest_key}")
     
     def stats(self) -> dict:
         """إحصائيات الكاش"""
@@ -122,10 +111,9 @@ class SimpleCache:
         }
 
 
-# إنشاء instance عام للكاش
 cache = SimpleCache(
-    default_ttl=60,    # دقيقة واحدة افتراضياً
-    max_size=10000     # 10,000 عنصر كحد أقصى
+    default_ttl=60,
+    max_size=10000
 )
 
 
@@ -139,7 +127,6 @@ def cache_key(*args, **kwargs) -> str:
         )
         return hashlib.md5(key_data.encode()).hexdigest()
     except Exception:
-        # في حالة فشل التسلسل، استخدم التمثيل النصي
         return hashlib.md5(str((args, kwargs)).encode()).hexdigest()
 
 
@@ -155,15 +142,12 @@ def cached(ttl: int = 60, key_prefix: str = ""):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # إنشاء مفتاح فريد
             key = f"{key_prefix}:{func.__name__}:{cache_key(*args, **kwargs)}"
             
-            # محاولة الحصول من الكاش
             cached_value = cache.get(key)
             if cached_value is not None:
                 return cached_value
             
-            # تنفيذ الدالة وحفظ النتيجة
             result = func(*args, **kwargs)
             cache.set(key, result, ttl)
             return result

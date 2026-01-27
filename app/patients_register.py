@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -24,21 +25,17 @@ def patient_register(
     db: Session = Depends(get_db),
     _: None = Depends(require_profile_secret)
 ):
-    # Validate role
     if payload.user_role.lower() != "patient":
         raise HTTPException(status_code=400, detail="user_role must be 'patient'")
 
-    # Ensure phone uniqueness
     existing = db.query(models.UserAccount).filter(models.UserAccount.phone_number == payload.phone_number).first()
     if existing:
-        # Return existing mapping (id) with patient formatting if same role
         return schemas.PatientUserRegisterResponse(
             message="ok",
             user_server_id=f"P-{existing.id}",
             user_role=payload.user_role
         )
 
-    # Create new UserAccount row (no patient_id linkage yet since model lacks it)
     ua = models.UserAccount(
         user_uid=payload.user_uid,
         user_role="patient",

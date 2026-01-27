@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 import time
 from collections import defaultdict
 from typing import Dict, List
@@ -9,7 +10,6 @@ from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 
-logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
@@ -30,21 +30,16 @@ class RateLimiter:
         """التحقق من السماح للطلب"""
         now = time.time()
         
-        # تنظيف دوري
         self._cleanup_old_entries()
         
-        # حذف الطلبات القديمة خارج النافذة الزمنية
         self._cache[key] = [
             timestamp for timestamp in self._cache[key]
             if now - timestamp < self.window
         ]
         
-        # التحقق من العدد
         if len(self._cache[key]) >= self.requests:
-            logger.warning(f"Rate limit exceeded for key: {key}")
             return False
         
-        # إضافة الطلب الحالي
         self._cache[key].append(now)
         return True
     
@@ -75,7 +70,6 @@ class RateLimiter:
         
         keys_to_delete = []
         for key, timestamps in self._cache.items():
-            # حذف المفاتيح التي لم تُستخدم منذ فترة طويلة
             if not timestamps or (now - max(timestamps) > self.window * 2):
                 keys_to_delete.append(key)
         
@@ -84,7 +78,6 @@ class RateLimiter:
         
         self._last_cleanup = now
         if keys_to_delete:
-            logger.info(f"Rate limiter cleanup: {len(keys_to_delete)} keys removed")
     
     def stats(self) -> dict:
         """إحصائيات Rate Limiter"""
@@ -95,7 +88,6 @@ class RateLimiter:
         }
 
 
-# إنشاء rate limiters مختلفة لمسارات مختلفة
 default_limiter = RateLimiter(requests=300, window=60)    # 300 طلب/دقيقة للمسارات العادية
 booking_limiter = RateLimiter(requests=200, window=60)    # 200 طلب/دقيقة للحجوزات
 auth_limiter = RateLimiter(requests=30, window=60)        # 30 طلب/دقيقة للمصادقة
@@ -105,18 +97,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """Middleware للـ Rate Limiting على مستوى التطبيق"""
     
     async def dispatch(self, request: Request, call_next):
-        # الحصول على IP Address
         client_ip = request.client.host if request.client else "unknown"
         forwarded_for = request.headers.get("X-Forwarded-For")
         if forwarded_for:
             client_ip = forwarded_for.split(",")[0].strip()
         
-        # استثناء مسارات معينة من Rate Limiting
         excluded_paths = ["/health", "/docs", "/openapi.json", "/redoc"]
         if any(request.url.path.startswith(path) for path in excluded_paths):
             return await call_next(request)
         
-        # اختيار limiter المناسب حسب المسار
         if "/auth/" in request.url.path:
             limiter = auth_limiter
         elif any(x in request.url.path for x in ["/booking", "/patient_booking", "/golden_booking"]):
@@ -124,7 +113,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         else:
             limiter = default_limiter
         
-        # التحقق من Rate Limit
         rate_key = f"{client_ip}:{request.url.path}"
         
         if not limiter.is_allowed(rate_key):
@@ -138,10 +126,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 }
             )
         
-        # تنفيذ الطلب
         response = await call_next(request)
         
-        # إضافة headers للـ Rate Limit
         remaining = limiter.get_remaining(rate_key)
         reset_time = limiter.get_reset_time(rate_key)
         

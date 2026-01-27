@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 from __future__ import annotations
 import json
 import uuid
@@ -30,7 +31,6 @@ def get_db():
     finally:
         db.close()
 
-# Arabic to ASCII digits map
 _AR2EN = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 
 
@@ -54,7 +54,6 @@ def _parse_bool(v: Any, default: bool = False) -> bool:
 
 
 def _normalize_ad_payload(body: Dict[str, Any]) -> Dict[str, Any]:
-    # ensure clinic_id number
     cid_raw = body.get("clinic_id")
     cid = _to_ascii_digits(cid_raw)
     try:
@@ -67,7 +66,6 @@ def _normalize_ad_payload(body: Dict[str, Any]) -> Dict[str, Any]:
             "error": {"code": "bad_request", "message": "clinic_id must be provided and numeric"}
         })
 
-    # normalize price to int if present
     price_raw = body.get("ad_price")
     price_val = None
     if price_raw is not None and price_raw != "":
@@ -75,11 +73,9 @@ def _normalize_ad_payload(body: Dict[str, Any]) -> Dict[str, Any]:
         s_digits = "".join(ch for ch in s if ch.isdigit())
         price_val = int(s_digits) if s_digits else None
 
-    # normalize phone
     phone_raw = body.get("ad_phonenumber")
     phone_ascii = _to_ascii_digits(phone_raw) if phone_raw is not None else None
 
-    # normalize discount
     discount_raw = body.get("ad_discount")
     discount_ascii = _to_ascii_digits(discount_raw) if discount_raw is not None else None
 
@@ -112,7 +108,6 @@ async def create_ad(request: Request, db: Session = Depends(get_db)):
     try:
         normalized = _normalize_ad_payload(body)
     except HTTPException as he:
-        # pass-through
         raise he
     except Exception:
         return JSONResponse(status_code=400, content={
@@ -180,7 +175,6 @@ def list_ads_by_clinic(clinic_id: int, db: Session = Depends(get_db)):
     return {"items": result, "count": len(result)}
 
 
-# ==================== NEW AD ENDPOINTS ====================
 
 def _validate_image_dimensions_and_size(image_url: str) -> tuple[bool, str | None]:
     """
@@ -193,12 +187,10 @@ def _validate_image_dimensions_and_size(image_url: str) -> tuple[bool, str | Non
         (False, error_message) إذا كانت الصورة غير صالحة
     """
     try:
-        # تحميل الصورة من URL مع timeout قصير
         response = requests.get(image_url, timeout=10, stream=True, allow_redirects=True)
         if response.status_code != 200:
             return False, f"فشل تحميل الصورة (HTTP {response.status_code})"
         
-        # قراءة محتوى الصورة مع حد أقصى 2MB
         image_data = b''
         total_size = 0
         max_size = 2 * 1024 * 1024  # 2MB
@@ -209,11 +201,9 @@ def _validate_image_dimensions_and_size(image_url: str) -> tuple[bool, str | Non
                 return False, "حجم الصورة يجب أن يكون أقل من 2 ميجابايت"
             image_data += chunk
         
-        # فتح الصورة باستخدام PIL
         image = Image.open(io.BytesIO(image_data))
         width, height = image.size
         
-        # التحقق من الأبعاد (يجب أن تكون بالضبط 500x250)
         if width != 500 or height != 250:
             return False, f"أبعاد الصورة يجب أن تكون 500x250 بالضبط. الأبعاد الحالية: {width}x{height}"
         
@@ -281,7 +271,6 @@ async def create_clinic_ad(
             content={"error": {"code": "bad_request", "message": "Invalid JSON body"}}
         )
     
-    # التحقق من الحقول المطلوبة
     required_fields = ["clinic_id", "ad_image_url", "ad_state"]
     for field in required_fields:
         if field not in body or not body[field]:
@@ -290,11 +279,8 @@ async def create_clinic_ad(
                 content={"error": {"code": "bad_request", "message": f"{field} مطلوب"}}
             )
     
-    # لا نقوم بالتحقق من أبعاد الصورة للدكتور في التطبيق
-    # التحقق يكون فقط في الداشبورد
     image_url = body.get("ad_image_url")
     
-    # تحويل clinic_id إلى رقم
     try:
         clinic_id = int(_to_ascii_digits(body["clinic_id"]))
     except Exception:
@@ -303,22 +289,17 @@ async def create_clinic_ad(
             content={"error": {"code": "bad_request", "message": "clinic_id يجب أن يكون رقماً"}}
         )
     
-    # توليد ad_ID فريد
     ad_id = f"{clinic_id}_{uuid.uuid4().hex[:8]}_{int(datetime.now().timestamp())}"
     
-    # تحويل الأرقام العربية
     phone = _to_ascii_digits(body.get("ad_phonenumber", ""))
     price = _to_ascii_digits(body.get("ad_price", ""))
     discount = _to_ascii_digits(body.get("ad_discount", ""))
     
-    # معالجة ad_status - نحفظه false دائماً حتى يتم التفعيل
     ad_status_input = body.get("ad_status", "false")
-    ad_status = False  # دائماً نبدأ بـ false
+    ad_status = False
     
-    # expired_date يُحسب عند التفعيل، لكن نضع placeholder في Response
     expired_date_str = "سيُحدد عند التفعيل"
     
-    # بناء الـ payload الكامل للحفظ في قاعدة البيانات
     ad_data = {
         "ad_ID": ad_id,
         "request_date": body.get("request_date", datetime.now().strftime("%d/%m/%Y")),
@@ -337,7 +318,6 @@ async def create_clinic_ad(
         "expired_date": expired_date_str
     }
     
-    # حفظ في قاعدة البيانات
     try:
         ad = models.Ad(
             clinic_id=clinic_id,
@@ -355,7 +335,6 @@ async def create_clinic_ad(
             content={"error": {"code": "server_error", "message": f"خطأ في حفظ الإعلان: {str(e)}"}}
         )
     
-    # Response بالصيغة المطلوبة فقط
     return {
         "ad_ID": ad_id,
         "ad_image": image_url,
@@ -395,7 +374,6 @@ def get_ad_image(
     query = db.query(models.Ad)
     
     if ad_ID:
-        # البحث بـ ad_ID داخل الـ payload
         ads = query.all()
         for ad in ads:
             try:
@@ -418,7 +396,6 @@ def get_ad_image(
         )
     
     elif clinic_id:
-        # البحث بـ clinic_id - إرجاع جميع الإعلانات للعيادة
         ads = query.filter(models.Ad.clinic_id == clinic_id).order_by(models.Ad.id.desc()).all()
         result = []
         
@@ -489,7 +466,6 @@ def get_all_clinic_ads_including_inactive(
     
     يتطلب: Doctor-Secret header
     """
-    # جلب جميع الإعلانات
     ads = db.query(models.Ad).order_by(models.Ad.id.desc()).all()
     result = []
     
@@ -497,7 +473,6 @@ def get_all_clinic_ads_including_inactive(
         try:
             data = json.loads(ad.payload_json) if ad.payload_json else {}
             
-            # جلب اسم الدكتور من clinic_id
             clinic_id = data.get("clinic_id")
             doctor_name = None
             
@@ -506,7 +481,6 @@ def get_all_clinic_ads_including_inactive(
                 if doctor:
                     doctor_name = doctor.name
             
-            # إضافة اسم الدكتور
             data["doctor_name"] = doctor_name
             
             result.append(data)
@@ -528,7 +502,6 @@ def get_all_clinic_ads(
     
     يتطلب: Doctor-Secret header
     """
-    # فلترة الإعلانات النشطة فقط
     ads = db.query(models.Ad).filter(models.Ad.ad_status == True).order_by(models.Ad.id.desc()).all()
     result = []
     
@@ -536,11 +509,9 @@ def get_all_clinic_ads(
         try:
             data = json.loads(ad.payload_json) if ad.payload_json else {}
             
-            # التأكد من أن ad_status في البيانات أيضاً true
             if not data.get("ad_status", False):
                 continue
             
-            # جلب اسم الدكتور من clinic_id
             clinic_id = data.get("clinic_id")
             doctor_name = None
             
@@ -549,7 +520,6 @@ def get_all_clinic_ads(
                 if doctor:
                     doctor_name = doctor.name
             
-            # إضافة اسم الدكتور والحقول المهمة للبيانات المرجعة
             data["doctor_name"] = doctor_name
             data["ad_phonenumber"] = data.get("ad_phonenumber", "")
             data["ad_subtitle"] = data.get("ad_subtitle", "")
@@ -585,21 +555,17 @@ def toggle_ad_status(
             content={"error": {"code": "bad_request", "message": "ad_ID is required"}}
         )
     
-    # البحث عن الإعلان
     ads = db.query(models.Ad).all()
     
     for ad in ads:
         try:
             data = json.loads(ad.payload_json) if ad.payload_json else {}
             if data.get("ad_ID") == ad_id:
-                # عكس الحالة
                 current_status = data.get("ad_status", False)
                 new_status = not current_status
                 
-                # تحديث البيانات
                 data["ad_status"] = new_status
                 
-                # إذا تم تفعيل الإعلان، أضف activated_at و expired_date (24 ساعة)
                 if new_status and not current_status:
                     from datetime import datetime, timedelta
                     activated_at = datetime.utcnow()
@@ -653,14 +619,12 @@ def delete_ad(
             content={"error": {"code": "bad_request", "message": "ad_ID is required"}}
         )
     
-    # البحث عن الإعلان
     ads = db.query(models.Ad).all()
     
     for ad in ads:
         try:
             data = json.loads(ad.payload_json) if ad.payload_json else {}
             if data.get("ad_ID") == ad_id:
-                # حذف الإعلان نهائياً
                 db.delete(ad)
                 db.commit()
                 
@@ -715,7 +679,6 @@ async def update_ad_with_image(
             content={"error": {"code": "bad_request", "message": "ad_ID مطلوب"}}
         )
     
-    # البحث عن الإعلان
     ads = db.query(models.Ad).all()
     found_ad = None
     
@@ -734,24 +697,17 @@ async def update_ad_with_image(
             content={"error": {"code": "not_found", "message": "الإعلان غير موجود"}}
         )
     
-    # تحميل البيانات الحالية
     data = json.loads(found_ad.payload_json) if found_ad.payload_json else {}
     
-    # تحديث رابط الصورة إذا تم إرساله
     if ad_image_url:
         data["ad_image_url"] = ad_image_url
     
-    # معالجة ملف الصورة إذا تم رفعه (كـ base64)
     elif image and image.filename:
         try:
-            # قراءة محتوى الصورة
             image_content = await image.read()
             
-            # تحويل إلى base64 (للاستخدام المؤقت)
             image_base64 = base64.b64encode(image_content).decode('utf-8')
             
-            # حفظ كـ data URL
-            # ⚠️ ملاحظة: يُفضل رفع الصورة إلى Firebase Storage للحصول على URL دائم
             data["ad_image_url"] = f"data:image/jpeg;base64,{image_base64}"
             
         except Exception as e:
@@ -760,7 +716,6 @@ async def update_ad_with_image(
                 content={"error": {"code": "image_error", "message": f"خطأ في معالجة الصورة: {str(e)}"}}
             )
     
-    # تحديث الحقول الأخرى
     if clinic_name is not None:
         data["clinic_name"] = clinic_name
     if ad_subtitle is not None:
@@ -780,7 +735,6 @@ async def update_ad_with_image(
     if team_message is not None:
         data["team_message"] = team_message
     
-    # حفظ التغييرات
     found_ad.payload_json = json.dumps(data, ensure_ascii=False)
     db.add(found_ad)
     db.commit()
@@ -827,7 +781,6 @@ def update_ad(
             content={"error": {"code": "bad_request", "message": "ad_ID is required"}}
         )
     
-    # الحقول المسموح بتعديلها
     allowed_fields = [
         "created_date",
         "request_date",
@@ -847,17 +800,14 @@ def update_ad(
         "ad_location"
     ]
     
-    # البحث عن الإعلان
     ads = db.query(models.Ad).all()
     
     for ad in ads:
         try:
             data = json.loads(ad.payload_json) if ad.payload_json else {}
             if data.get("ad_ID") == ad_id:
-                # تحديث الحقول المسموح بها فقط
                 for field in allowed_fields:
                     if field in payload:
-                        # معالجة خاصة للأرقام
                         if field in ["ad_phone", "ad_phonenumber"]:
                             data["ad_phonenumber"] = _to_ascii_digits(payload[field])
                         elif field in ["ad_price"]:
@@ -865,14 +815,12 @@ def update_ad(
                         elif field in ["discount_percentage", "ad_discount"]:
                             data["ad_discount"] = _to_ascii_digits(payload[field])
                         elif field == "ad_status":
-                            # تحويل ad_status إلى boolean
                             status_value = _parse_bool(payload[field])
                             data["ad_status"] = status_value
                             ad.ad_status = status_value
                         else:
                             data[field] = payload[field]
                 
-                # حفظ التغييرات
                 ad.payload_json = json.dumps(data, ensure_ascii=False)
                 db.add(ad)
                 db.commit()

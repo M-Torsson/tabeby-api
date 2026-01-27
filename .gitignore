@@ -40,6 +40,11 @@ Tabeby-Archives.postman_collection.json
 # Scripts
 run_migration.py
 search_and_delete_phone.py
+scripts/
+examples/
+
+# Migrations
+migrations/
 
 # Logs
 *.log
@@ -47,3 +52,10 @@ search_and_delete_phone.py
 # OS
 .DS_Store
 Thumbs.db
+
+# Other projects
+tabeby-api/
+.model_lab/
+huggingface_empty_v1/
+model_lab.workspace.config
+=6.6.0

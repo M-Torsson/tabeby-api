@@ -2,6 +2,7 @@
 # © 2026 Muthana. All rights reserved.
 # Unauthorized copying or distribution is prohibited.
 
+
 import os
 import smtplib
 from email.message import EmailMessage
@@ -10,14 +11,11 @@ from typing import Optional
 import json
 import requests
 
-# مرسل البريد
 EMAIL_FROM = os.getenv("EMAIL_FROM")
 EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Tabeby").strip()
 
-# Resend API
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 
-# SMTP إعدادات
 SMTP_HOST = os.getenv("SMTP_HOST")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER")
@@ -93,7 +91,6 @@ def _send_via_smtp(to_email: str, subject: str, html_body: str, text_body: Optio
 
 
 def _send_email(to_email: str, subject: str, html_body: str, text_body: Optional[str] = None) -> bool:
-    # أولوية: Resend ثم SMTP
     if _send_via_resend(to_email, subject, html_body, text_body):
         return True
     if _send_via_smtp(to_email, subject, html_body, text_body):
