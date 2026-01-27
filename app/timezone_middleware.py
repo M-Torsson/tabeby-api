@@ -1,7 +1,7 @@
-"""
-Timezone Response Middleware
-Automatically converts all datetime fields in API responses to Iraq timezone
-"""
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import StreamingResponse

@@ -1,3 +1,7 @@
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 from datetime import datetime, timezone, timedelta
 import uuid
 import os
@@ -197,7 +201,6 @@ async def admin_auth(request: Request, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         db.rollback()
-        print(f"[ERROR] admin_auth failed: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -261,7 +264,6 @@ def create_admin(
         
     except Exception as e:
         db.rollback()
-        print(f"[ERROR] create_admin failed: {e}")
         raise HTTPException(status_code=500, detail="حدث خطأ في إنشاء الأدمن")
 
 
@@ -402,7 +404,6 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
         db.commit()
     except Exception as e:
         db.rollback()
-        print("[WARN] refresh insert on rotate failed, trying dynamic insert:", e)
         try:
             cols_res = db.execute(
                 text(
@@ -436,7 +437,6 @@ def refresh_tokens(payload: schemas.RefreshRequest, db: Session = Depends(get_db
             db.commit()
         except Exception as e2:
             db.rollback()
-            print("[ERROR] dynamic insert on rotate failed:", e2)
             raise HTTPException(status_code=500, detail="database_error")
 
     return {
@@ -463,10 +463,8 @@ def forgot_password(payload: schemas.ForgotPasswordRequest, db: Session = Depend
         db.add(models.PasswordResetToken(token=raw_token, admin_id=admin.id, expires_at=expires_at, used=False))
         db.commit()
         reset_link = f"{FRONTEND_BASE_URL}/auth/reset?token={raw_token}"
-        # أرسل البريد إن كان SMTP مُعداً، وإلا اطبعه أثناء التطوير
+        # أرسل البريد إن كان SMTP مُعداً
         sent = send_password_reset(payload.email, reset_link)
-        if not sent:
-            print("[DEV] Reset link:", reset_link)
     return {"status": "sent"}
 
 

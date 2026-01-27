@@ -1,3 +1,49 @@
+# Python
 .venv/
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test files
+test_*.py
+check_*.py
+search_*.py
+get_user_*.py
+delete_from_*.py
+
+# Archive files
+ARCHIVE_*.md
+README_ARCHIVE.md
+INSTALLATION_ARCHIVE.md
+POSTMAN_GUIDE.md
+TODO_TEMP.txt
+Tabeby-Archives.postman_collection.json
+
+# Scripts
+run_migration.py
+search_and_delete_phone.py
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

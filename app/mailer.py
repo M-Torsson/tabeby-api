@@ -1,3 +1,7 @@
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 import os
 import smtplib
 from email.message import EmailMessage
@@ -51,10 +55,8 @@ def _send_via_resend(to_email: str, subject: str, html_body: str, text_body: Opt
         )
         if 200 <= resp.status_code < 300:
             return True
-        print("[MAIL][RESEND][ERROR]", resp.status_code, resp.text)
         return False
     except Exception as e:
-        print("[MAIL][RESEND][EXCEPTION]", e)
         return False
 
 
@@ -87,7 +89,6 @@ def _send_via_smtp(to_email: str, subject: str, html_body: str, text_body: Optio
                 server.send_message(msg)
         return True
     except Exception as e:
-        print("[MAIL][SMTP][ERROR]", e)
         return False
 
 
@@ -97,7 +98,6 @@ def _send_email(to_email: str, subject: str, html_body: str, text_body: Optional
         return True
     if _send_via_smtp(to_email, subject, html_body, text_body):
         return True
-    print("[MAIL] No email provider configured or sending failed.")
     return False
 
 

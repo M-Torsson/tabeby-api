@@ -1,7 +1,7 @@
-"""
-Iraq Timezone Utilities
-Handle all datetime operations with Iraq timezone (Asia/Baghdad, UTC+3)
-"""
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 

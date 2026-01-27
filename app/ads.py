@@ -1,3 +1,7 @@
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 from __future__ import annotations
 import json
 import uuid
@@ -272,7 +276,6 @@ async def create_clinic_ad(
         if not isinstance(body, dict):
             raise ValueError("Invalid JSON")
     except Exception as e:
-        print(f"[CREATE_AD] JSON parsing error: {e}")
         return JSONResponse(
             status_code=400,
             content={"error": {"code": "bad_request", "message": "Invalid JSON body"}}
@@ -345,10 +348,7 @@ async def create_clinic_ad(
         db.commit()
         db.refresh(ad)
         
-        print(f"[CREATE_AD] ✅ Ad created successfully: {ad_id}")
-        
     except Exception as e:
-        print(f"[CREATE_AD] Database error: {e}")
         db.rollback()
         return JSONResponse(
             status_code=500,
@@ -740,7 +740,6 @@ async def update_ad_with_image(
     # تحديث رابط الصورة إذا تم إرساله
     if ad_image_url:
         data["ad_image_url"] = ad_image_url
-        print(f"[UPDATE_AD] Image URL updated for ad {ad_ID}")
     
     # معالجة ملف الصورة إذا تم رفعه (كـ base64)
     elif image and image.filename:
@@ -755,10 +754,7 @@ async def update_ad_with_image(
             # ⚠️ ملاحظة: يُفضل رفع الصورة إلى Firebase Storage للحصول على URL دائم
             data["ad_image_url"] = f"data:image/jpeg;base64,{image_base64}"
             
-            print(f"[UPDATE_AD] Image file uploaded for ad {ad_ID}, size: {len(image_content)} bytes")
-            
         except Exception as e:
-            print(f"[UPDATE_AD] Error processing image: {e}")
             return JSONResponse(
                 status_code=400,
                 content={"error": {"code": "image_error", "message": f"خطأ في معالجة الصورة: {str(e)}"}}

@@ -1,7 +1,7 @@
-"""
-Scheduler للأرشفة التلقائية للحجوزات القديمة
-يعمل يوميًا في الساعة 12 ليلاً بتوقيت العراق (UTC+3)
-"""
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger

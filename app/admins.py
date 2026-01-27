@@ -1,3 +1,7 @@
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 import os
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -200,7 +204,6 @@ def update_admin(admin_id: int, payload: schemas.AdminAdminUpdate, db: Session =
 
 @router.delete("/{admin_id}")
 def delete_admin(admin_id: int, db: Session = Depends(get_db), _: None = Depends(require_profile_secret)):
-    print(f"[DELETE_ADMIN] طلب حذف الإدمن: id={admin_id}")
     admin = (
         db.query(models.Admin)
         .options(load_only(models.Admin.id, models.Admin.email, models.Admin.name, models.Admin.is_superuser))
@@ -209,15 +212,11 @@ def delete_admin(admin_id: int, db: Session = Depends(get_db), _: None = Depends
     )
     # احذف جميع رموز الريفريش المرتبطة بالإدمن بشكل آمن بدون تحميل أعمدة غير موجودة
     db.query(models.RefreshToken).filter_by(admin_id=admin_id).delete()
-    print(f"[DELETE_ADMIN] الإدمن المستهدف: {admin}")
     if not admin:
-        print(f"[DELETE_ADMIN] الإدمن غير موجود: id={admin_id}")
         raise HTTPException(status_code=404, detail="المستخدم غير موجود")
     try:
         db.delete(admin)
         db.commit()
-        print(f"[DELETE_ADMIN] تم حذف الإدمن بنجاح: id={admin_id}")
         return {"message": "تم حذف الإدمن"}
     except Exception as e:
-        print(f"[DELETE_ADMIN][ERROR] خطأ أثناء الحذف: {e}")
         raise HTTPException(status_code=500, detail=f"خطأ أثناء حذف الإدمن: {e}")

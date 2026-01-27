@@ -1,3 +1,7 @@
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
 from typing import Literal, Optional, List
 from datetime import datetime

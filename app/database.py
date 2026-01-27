@@ -1,3 +1,7 @@
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine

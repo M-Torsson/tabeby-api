@@ -1,6 +1,7 @@
-"""
-نظام Rate Limiting بسيط لحماية API من الاستخدام المفرط
-"""
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 import time
 from collections import defaultdict
 from typing import Dict, List

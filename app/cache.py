@@ -1,7 +1,7 @@
-"""
-نظام Caching بسيط في الذاكرة (Memory Cache)
-يعمل بدون Redis - مناسب للتطبيقات المتوسطة
-"""
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 import json
 import time
 import hashlib

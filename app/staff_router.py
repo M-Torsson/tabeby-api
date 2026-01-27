@@ -1,3 +1,7 @@
+# Author: Muthana
+# © 2026 Muthana. All rights reserved.
+# Unauthorized copying or distribution is prohibited.
+
 from typing import Optional, List
 import os
 import bcrypt
@@ -231,7 +235,7 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
     try:
         _ensure_staff_table(db)
     except Exception as e:
-        print(f"[STAFF_LOGIN] Warning: _ensure_staff_table failed: {e}")
+        pass
     
     # قبول JSON أو form
     email = None
@@ -248,7 +252,6 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
             email = (form.get("email") or "").strip()
             password = form.get("password")
     except Exception as e:
-        print(f"[STAFF_LOGIN] Error parsing request: {e}")
         raise HTTPException(status_code=400, detail="خطأ في قراءة البيانات")
     
     if not email or not password:
@@ -265,7 +268,6 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
             .first()
         )
     except Exception as e:
-        print(f"[STAFF_LOGIN] Database query error: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"خطأ في قاعدة البيانات: {str(e)}")
@@ -286,13 +288,11 @@ async def staff_login(request: Request, db: Session = Depends(get_db)):
         if not bcrypt.checkpw(password_bytes, pwd_hash.encode('utf-8')):
             raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
     except Exception as e:
-        print(f"[STAFF_LOGIN] Password verification error: {e}")
         raise HTTPException(status_code=401, detail="خطأ في التحقق من كلمة المرور")
 
     try:
         token = create_access_token(subject=f"staff:{int(row.get('id'))}", extra={"type": "staff"})
     except Exception as e:
-        print(f"[STAFF_LOGIN] Token creation error: {e}")
         raise HTTPException(status_code=500, detail="خطأ في إنشاء الرمز")
     
     return {
@@ -783,8 +783,6 @@ async def create_staff(request: Request, db: Session = Depends(get_db), token: s
             )
         except Exception as e2:
             db.rollback()
-            print("[ERROR] staff insert failed:", e)
-            print("[ERROR] staff dynamic insert failed:", e2)
             # Return plain text 500 with exact Content-Type (no charset) to satisfy client expectations
             debug = (os.getenv("DEBUG_ERRORS") or "").lower() in {"1", "true", "yes"}
             msg = "Internal Server Error"
@@ -1104,7 +1102,6 @@ def create_staff_simple(
         raise
     except Exception as e:
         db.rollback()
-        print(f"❌ ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"خطأ: {str(e)}")
 
 
