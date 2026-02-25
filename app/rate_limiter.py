@@ -10,6 +10,7 @@ from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 
+logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
@@ -78,6 +79,7 @@ class RateLimiter:
         
         self._last_cleanup = now
         if keys_to_delete:
+            logger.info(f"Rate Limiter CLEANUP: {len(keys_to_delete)} old entries removed")
     
     def stats(self) -> dict:
         """إحصائيات Rate Limiter"""
