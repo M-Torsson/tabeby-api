@@ -52,7 +52,7 @@ except Exception as _e:
 app = FastAPI(
     title="Tabeby API",
     description="API للإدارة الطبية وحجوزات العيادات - محسّن لتحمل 10,000+ مستخدم",
-    version="2.0.0"
+    version="2.0.1"
 )
 
 app.add_middleware(RateLimitMiddleware)
@@ -173,7 +173,7 @@ def health():
     health_status = {
         "status": "healthy",
         "timestamp": dt.utcnow().isoformat() + "Z",
-        "version": "2.0.0",
+        "version": "2.0.1",
         "checks": {},
         "performance": {}
     }
@@ -262,7 +262,7 @@ def healthz_detailed():
     health_data = {
         "status": "healthy",
         "timestamp": dt.utcnow().isoformat() + "Z",
-        "version": "1.0.0",
+        "version": "2.0.1",
         "service": "Tabeby API",
         "checks": {},
         "statistics": {}
@@ -475,7 +475,7 @@ def system_statistics():
                 "pool": get_pool_stats()
             },
             "cache": cache.stats(),
-            "version": "2.0.0"
+            "version": "2.0.1"
         }
         return stats
     except Exception as e:
