@@ -87,6 +87,7 @@ class SimpleCache:
         
         self._last_cleanup = now
         if expired_keys:
+            logger.info(f"Cache CLEANUP: {len(expired_keys)} expired keys removed")
     
     def _evict_oldest(self):
         """حذف أقدم عنصر عند امتلاء الكاش"""
